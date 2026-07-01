@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Angler Mod Manager</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Angler Mod Manager</h1>
+          <p id="game-folder-label">Game folder not set</p>
+        </div>
+        <div class="actions">
+          <button id="set-game-folder">Game Folder</button>
+          <button id="copy-launch-options">Copy Launch Options</button>
+          <button id="apply-enabled">Apply Enabled</button>
+          <button id="apply-play" class="primary">Apply & Play</button>
+        </div>
+      </header>
+
+      <section id="drop-zone" class="drop-zone">
+        <div>
+          <strong>Drop mod folders or .zip files here</strong>
+          <span>Mods are saved into the app library and enabled mods are deployed into the game's mods folder.</span>
+        </div>
+        <div class="drop-actions">
+          <button id="add-folder">Add Folder</button>
+          <button id="add-zip">Add Zip</button>
+        </div>
+      </section>
+
+      <section class="content">
+        <div class="panel mod-panel">
+          <div class="panel-header">
+            <h2>Mods</h2>
+            <button id="remove-mod">Remove</button>
+          </div>
+          <div id="mod-list" class="mod-list"></div>
+        </div>
+
+        <aside class="panel detail-panel">
+          <h2>Details</h2>
+          <pre id="details"></pre>
+        </aside>
+      </section>
+
+      <footer id="status">Ready.</footer>
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

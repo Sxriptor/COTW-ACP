@@ -1,0 +1,40 @@
+{
+  "name": "angler-mod-manager-electron",
+  "version": "1.0.0",
+  "description": "Electron mod manager for Call of the Wild: The Angler",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron .",
+    "dist:win": "electron-builder --win",
+    "pack:win": "electron-builder --win --dir"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.anglertools.modmanager",
+    "productName": "Angler Mod Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
