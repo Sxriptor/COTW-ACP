@@ -1,7 +1,6 @@
 # Angler Mod Manager Electron
 
-Standalone Electron mod manager for Call of the Wild: The Angler.
-
+Standalone Electron mod manager for COTW-TA
 ## Commands
 
 ```bash
