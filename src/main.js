@@ -327,6 +327,7 @@ function looksLikeModRoot(candidate) {
     "resourcesets",
     "settings",
     "tables",
+    "text",
     "textures",
     "ui",
     "worlds",

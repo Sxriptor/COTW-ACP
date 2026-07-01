@@ -9,40 +9,48 @@
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>Angler Mod Manager</h1>
-          <p id="game-folder-label">Game folder not set</p>
+        <div class="brand">
+          <div class="brand-icon">🎣</div>
+          <div class="brand-text">
+            <h1>Angler Mod Manager</h1>
+            <p id="game-folder-label">Game folder not set</p>
+          </div>
         </div>
         <div class="actions">
-          <button id="set-game-folder">Game Folder</button>
-          <button id="copy-launch-options">Copy Launch Options</button>
-          <button id="apply-enabled">Apply Enabled</button>
-          <button id="apply-play" class="primary">Apply & Play</button>
+          <button id="set-game-folder">📁 Game Folder</button>
+          <button id="copy-launch-options">📋 Launch Options</button>
+          <button id="apply-enabled">⚡ Apply Mods</button>
+          <button id="apply-play" class="primary">▶ Apply &amp; Play</button>
         </div>
       </header>
 
       <section id="drop-zone" class="drop-zone">
-        <div>
-          <strong>Drop mod folders or .zip files here</strong>
-          <span>Mods are saved into the app library and enabled mods are deployed into the game's mods folder.</span>
+        <div class="drop-left">
+          <div class="drop-icon">📦</div>
+          <div class="drop-text">
+            <strong>Drop mod folders or .zip files here</strong>
+            <span>Mods are saved into the library — enabled mods are deployed into the game's mods folder.</span>
+          </div>
         </div>
         <div class="drop-actions">
-          <button id="add-folder">Add Folder</button>
-          <button id="add-zip">Add Zip</button>
+          <button id="add-folder">+ Folder</button>
+          <button id="add-zip">+ Zip</button>
         </div>
       </section>
 
       <section class="content">
         <div class="panel mod-panel">
           <div class="panel-header">
-            <h2>Mods</h2>
-            <button id="remove-mod">Remove</button>
+            <h2>Installed Mods</h2>
+            <button id="remove-mod" class="danger">✕ Remove</button>
           </div>
           <div id="mod-list" class="mod-list"></div>
         </div>
 
         <aside class="panel detail-panel">
-          <h2>Details</h2>
+          <div class="panel-header">
+            <h2>Details</h2>
+          </div>
           <pre id="details"></pre>
         </aside>
       </section>

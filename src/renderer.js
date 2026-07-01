@@ -74,6 +74,13 @@ function render() {
   elements.gameFolder.textContent = currentState.gameFolder || "Game folder not set";
   elements.modList.innerHTML = "";
 
+  if (currentState.mods.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.innerHTML = `<div class="empty-icon">🎣</div><div>No mods installed yet</div><div style="font-size:11px;margin-top:2px">Drop a folder or .zip above to get started</div>`;
+    elements.modList.append(empty);
+  }
+
   for (const mod of currentState.mods) {
     const row = document.createElement("div");
     row.className = `mod-row${mod.id === selectedModId ? " selected" : ""}`;
@@ -82,11 +89,19 @@ function render() {
       render();
     });
 
+    const label = document.createElement("label");
+    label.className = "toggle";
+    label.addEventListener("click", (event) => event.stopPropagation());
+
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = mod.enabled;
-    checkbox.addEventListener("click", (event) => event.stopPropagation());
     checkbox.addEventListener("change", () => run("Mod toggle saved and applied.", () => window.angler.setEnabled(mod.id, checkbox.checked)));
+
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+
+    label.append(checkbox, track);
 
     const name = document.createElement("div");
     name.className = "mod-name";
@@ -96,7 +111,7 @@ function render() {
     count.className = "mod-count";
     count.textContent = `${mod.fileCount} file${mod.fileCount === 1 ? "" : "s"}`;
 
-    row.append(checkbox, name, count);
+    row.append(label, name, count);
     elements.modList.append(row);
   }
 
@@ -139,5 +154,5 @@ function defaultDetails() {
 
 function setStatus(text, isError = false) {
   elements.status.textContent = text;
-  elements.status.style.color = isError ? "var(--danger)" : "var(--muted)";
+  elements.status.classList.toggle("error", isError);
 }
