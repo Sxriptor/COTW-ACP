@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' file:; media-src 'self' file:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Angler Mod Manager</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #111111;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+      }
+
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background: #111111;
+      }
+
+      .fallback {
+        display: none;
+        width: 100%;
+        height: 100%;
+        background:
+          radial-gradient(circle at 45% 30%, rgba(83, 180, 222, 0.28), transparent 34%),
+          linear-gradient(145deg, #111111, #1c1c1c 58%, #0c0c0c);
+      }
+
+      body.no-video .fallback {
+        display: block;
+      }
+
+      body.no-video video {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <video autoplay muted playsinline></video>
+    <div class="fallback"></div>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const video = document.querySelector("video");
+      const source = params.get("video");
+
+      if (source) {
+        video.src = source;
+        video.play().catch(() => {
+          document.body.classList.add("no-video");
+        });
+      } else {
+        document.body.classList.add("no-video");
+      }
+    </script>
+  </body>
+</html>

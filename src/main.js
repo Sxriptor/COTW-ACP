@@ -1,22 +1,105 @@
 const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
 const AdmZip = require("adm-zip");
+const { pathToFileURL } = require("url");
 
 const STEAM_APP_ID = "1408610";
 const LAUNCH_OPTIONS = "--vfs-fs mods --vfs-archive archives_win64";
+const SPLASH_MIN_DURATION_MS = 3000;
 
 let mainWindow;
+let splashWindow;
+let splashShownAt = 0;
+let mainWindowRevealPending = false;
 let dataRoot;
 let libraryRoot;
 let statePath;
 let manifestPath;
 let state;
 
+function getSplashVideoPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "splash.mp4")
+    : path.join(app.getAppPath(), "public", "splash.mp4");
+}
+
+function createSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    return splashWindow;
+  }
+
+  splashShownAt = Date.now();
+  splashWindow = new BrowserWindow({
+    width: 760,
+    height: 460,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    skipTaskbar: true,
+    backgroundColor: "#111111",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  splashWindow.once("ready-to-show", () => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.show();
+    }
+  });
+
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+
+  const videoPath = getSplashVideoPath();
+  const videoUrl = fs.existsSync(videoPath) ? pathToFileURL(videoPath).href : "";
+  splashWindow.loadFile(path.join(__dirname, "splash.html"), {
+    query: { video: videoUrl },
+  }).catch(() => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.show();
+    }
+  });
+
+  return splashWindow;
+}
+
+function closeSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+  }
+  splashWindow = null;
+}
+
+function revealMainWindowAfterSplash() {
+  if (mainWindowRevealPending) {
+    return;
+  }
+
+  mainWindowRevealPending = true;
+  const elapsedMs = Date.now() - splashShownAt;
+  const remainingMs = Math.max(0, SPLASH_MIN_DURATION_MS - elapsedMs);
+
+  setTimeout(() => {
+    closeSplashWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+    }
+    mainWindowRevealPending = false;
+  }, remainingMs);
+}
+
 function createWindow() {
   Menu.setApplicationMenu(null);
+  createSplashWindow();
 
   mainWindow = new BrowserWindow({
     width: 1040,
@@ -24,6 +107,7 @@ function createWindow() {
     minWidth: 760,
     minHeight: 520,
     frame: false,
+    show: false,
     backgroundColor: "#111111",
     icon: path.join(__dirname, "../public/logo.png"),
     webPreferences: {
@@ -33,7 +117,56 @@ function createWindow() {
     },
   });
 
+  mainWindow.webContents.once("did-finish-load", () => {
+    revealMainWindowAfterSplash();
+  });
+
+  mainWindow.webContents.once("did-fail-load", () => {
+    revealMainWindowAfterSplash();
+  });
+
+  // Safety fallback: close splash after 30s even if the page never fires did-finish-load
+  setTimeout(() => {
+    if (!mainWindowRevealPending) {
+      revealMainWindowAfterSplash();
+    }
+  }, 30000);
+
   mainWindow.loadFile(path.join(__dirname, "index.html"));
+
+  if (app.isPackaged) {
+    setupAutoUpdater();
+  }
+}
+
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("update-available", (info) => {
+    mainWindow.webContents.send("update:available", { version: info.version, notes: info.releaseNotes });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    mainWindow.webContents.send("update:progress", {
+      percent:      Math.floor(progress.percent),
+      transferred:  progress.transferred,
+      total:        progress.total,
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    mainWindow.webContents.send("update:downloaded", { version: info.version });
+  });
+
+  autoUpdater.on("error", (err) => {
+    // silent — don't nag the user if update check fails
+    console.error("Updater error:", err.message);
+  });
+
+  // Check on launch, then every 2 hours
+  autoUpdater.checkForUpdates().catch(() => {});
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 2 * 60 * 60 * 1000);
 }
 
 app.whenReady().then(() => {
@@ -66,6 +199,9 @@ app.on("activate", () => {
 });
 
 function registerIpc() {
+  ipcMain.handle("update:download", () => autoUpdater.downloadUpdate().catch(() => {}));
+  ipcMain.handle("update:install",  () => autoUpdater.quitAndInstall());
+
   ipcMain.handle("window:minimize",     () => mainWindow.minimize());
   ipcMain.handle("window:maximize",     () => { mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); return mainWindow.isMaximized(); });
   ipcMain.handle("window:close",        () => mainWindow.close());

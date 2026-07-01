@@ -10,7 +10,8 @@
     "pack:win": "electron-builder --win --dir"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.5.16",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "electron": "^31.7.7",
@@ -28,15 +29,32 @@
       "public/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "public/splash.mp4",
+        "to": "splash.mp4"
+      }
+    ],
     "win": {
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "icon": "public/logo.png"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ACM-installer.exe"
+    },
+    "portable": {
+      "artifactName": "ACM-portable.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Sxriptor",
+      "repo": "COTW-ACP",
+      "releaseType": "release"
     }
   }
 }

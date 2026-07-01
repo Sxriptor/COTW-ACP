@@ -89,6 +89,41 @@ function wireEvents() {
   // Sidebar collapse
   el.collapseBtn.addEventListener("click", () => el.sidebar.classList.toggle("collapsed"));
 
+  // Auto-updater overlay
+  const overlay     = document.getElementById("update-overlay");
+  const updateVer   = document.getElementById("update-version");
+  const progressWrap= document.getElementById("update-progress-wrap");
+  const progressFill= document.getElementById("update-progress-fill");
+  const progressText= document.getElementById("update-progress-text");
+  const updateAction= document.getElementById("update-action");
+  const updateTitle = overlay.querySelector(".update-title");
+
+  window.updater.onAvailable((info) => {
+    updateVer.textContent = `v${info.version} is ready to download`;
+    overlay.classList.remove("hidden");
+  });
+
+  window.updater.onProgress((p) => {
+    progressWrap.classList.remove("hidden");
+    progressFill.style.width = `${p.percent}%`;
+    progressText.textContent = `${p.percent}%`;
+    updateAction.disabled = true;
+    updateAction.textContent = "Downloading…";
+    updateTitle.textContent = "Downloading Update";
+  });
+
+  window.updater.onDownloaded((info) => {
+    updateTitle.textContent = "Ready to Install";
+    updateVer.textContent = `v${info.version} downloaded`;
+    progressWrap.classList.add("hidden");
+    updateAction.disabled = false;
+    updateAction.textContent = "Restart & Install";
+    updateAction.onclick = () => window.updater.install();
+  });
+
+  updateAction.addEventListener("click", () => window.updater.download());
+  document.getElementById("update-dismiss").addEventListener("click", () => overlay.classList.add("hidden"));
+
   // Window controls
   document.getElementById("win-minimize").addEventListener("click", () => window.win.minimize());
   document.getElementById("win-maximize").addEventListener("click", async () => {

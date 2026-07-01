@@ -774,3 +774,111 @@ footer::before {
 
 footer.error { color: var(--text-2); }
 footer.error::before { background: var(--text-2); }
+
+/* ── UPDATE OVERLAY ── */
+.update-overlay {
+  position: fixed;
+  bottom: 44px;
+  right: 14px;
+  width: 280px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  z-index: 10000;
+  animation: slide-up .22s ease;
+}
+
+.update-overlay.hidden {
+  display: none;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.update-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--text);
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.update-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.update-version {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.update-progress-wrap {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-progress-wrap.hidden { display: none; }
+
+.update-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: var(--panel-3);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.update-progress-fill {
+  height: 100%;
+  background: var(--text);
+  border-radius: 99px;
+  width: 0%;
+  transition: width .3s;
+}
+
+.update-progress-text {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.update-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.update-btn-later {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.update-btn-action {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+}

@@ -191,6 +191,24 @@
 
       <footer id="status"></footer>
     </div>
+
+    <div id="update-overlay" class="update-overlay hidden">
+      <div class="update-icon">↑</div>
+      <div class="update-body">
+        <div class="update-title">Update Available</div>
+        <div id="update-version" class="update-version"></div>
+        <div id="update-progress-wrap" class="update-progress-wrap hidden">
+          <div class="update-progress-bar">
+            <div id="update-progress-fill" class="update-progress-fill"></div>
+          </div>
+          <span id="update-progress-text" class="update-progress-text">0%</span>
+        </div>
+      </div>
+      <div class="update-actions">
+        <button id="update-dismiss" class="update-btn-later">Later</button>
+        <button id="update-action" class="update-btn-action primary">Download</button>
+      </div>
+    </div>
     <script src="./renderer.js"></script>
   </body>
 </html>

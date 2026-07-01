@@ -14,6 +14,14 @@ contextBridge.exposeInMainWorld("angler", {
   pathForFile:       (file) => webUtils.getPathForFile(file),
 });
 
+contextBridge.exposeInMainWorld("updater", {
+  onAvailable:  (cb) => ipcRenderer.on("update:available",  (_, info) => cb(info)),
+  onProgress:   (cb) => ipcRenderer.on("update:progress",   (_, p)    => cb(p)),
+  onDownloaded: (cb) => ipcRenderer.on("update:downloaded", (_, info) => cb(info)),
+  download: () => ipcRenderer.invoke("update:download"),
+  install:  () => ipcRenderer.invoke("update:install"),
+});
+
 contextBridge.exposeInMainWorld("win", {
   minimize:    () => ipcRenderer.invoke("window:minimize"),
   maximize:    () => ipcRenderer.invoke("window:maximize"),
