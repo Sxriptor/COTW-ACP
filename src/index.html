@@ -7,56 +7,190 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
+    <div class="app-shell">
+
       <header class="topbar">
         <div class="brand">
-          <div class="brand-icon">🎣</div>
+          <img class="brand-icon" src="../public/logo.png" alt="" />
           <div class="brand-text">
-            <h1>Angler Mod Manager</h1>
-            <p id="game-folder-label">Game folder not set</p>
+            <span class="brand-name">Angler Mod Manager</span>
+            <span id="game-folder-label">Game folder not set</span>
           </div>
         </div>
-        <div class="actions">
-          <button id="set-game-folder">📁 Game Folder</button>
-          <button id="copy-launch-options">📋 Launch Options</button>
-          <button id="apply-enabled">⚡ Apply Mods</button>
-          <button id="apply-play" class="primary">▶ Apply &amp; Play</button>
+        <div class="win-controls">
+          <button class="win-btn" id="win-minimize" title="Minimize">
+            <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+          </button>
+          <button class="win-btn" id="win-maximize" title="Maximize">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"><rect x=".5" y=".5" width="9" height="9"/></svg>
+          </button>
+          <button class="win-btn win-close" id="win-close" title="Close">
+            <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>
+          </button>
         </div>
       </header>
 
-      <section id="drop-zone" class="drop-zone">
-        <div class="drop-left">
-          <div class="drop-icon">📦</div>
-          <div class="drop-text">
-            <strong>Drop mod folders or .zip files here</strong>
-            <span>Mods are saved into the library — enabled mods are deployed into the game's mods folder.</span>
-          </div>
-        </div>
-        <div class="drop-actions">
-          <button id="add-folder">+ Folder</button>
-          <button id="add-zip">+ Zip</button>
-        </div>
-      </section>
+      <div class="app-body">
 
-      <section class="content">
-        <div class="panel mod-panel">
-          <div class="panel-header">
-            <h2>Installed Mods</h2>
-            <button id="remove-mod" class="danger">✕ Remove</button>
+        <nav class="sidebar" id="sidebar">
+          <div class="nav-top">
+            <button class="nav-item active" data-view="mods">
+              <svg class="nav-icon" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <line x1="3" y1="4"   x2="12" y2="4"/>
+                <line x1="3" y1="7.5" x2="12" y2="7.5"/>
+                <line x1="3" y1="11"  x2="12" y2="11"/>
+              </svg>
+              <span class="nav-label">My Mods</span>
+            </button>
+            <button class="nav-item" data-view="get-mods">
+              <svg class="nav-icon" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="7.5" y1="2"  x2="7.5" y2="10"/>
+                <polyline points="4.5,7 7.5,10 10.5,7"/>
+                <line x1="2"   y1="13" x2="13"  y2="13"/>
+              </svg>
+              <span class="nav-label">Get Mods</span>
+            </button>
+            <button class="nav-item" data-view="settings">
+              <svg class="nav-icon" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+                <circle cx="7.5" cy="7.5" r="2"/>
+                <line x1="7.5" y1="1"   x2="7.5" y2="2.5"/>
+                <line x1="7.5" y1="12.5" x2="7.5" y2="14"/>
+                <line x1="1"   y1="7.5" x2="2.5"  y2="7.5"/>
+                <line x1="12.5" y1="7.5" x2="14"  y2="7.5"/>
+                <line x1="3.05" y1="3.05" x2="4.1"  y2="4.1"/>
+                <line x1="10.9" y1="10.9" x2="11.95" y2="11.95"/>
+                <line x1="3.05" y1="11.95" x2="4.1"  y2="10.9"/>
+                <line x1="10.9" y1="4.1"  x2="11.95" y2="3.05"/>
+              </svg>
+              <span class="nav-label">Settings</span>
+            </button>
           </div>
-          <div id="mod-list" class="mod-list"></div>
-        </div>
-
-        <aside class="panel detail-panel">
-          <div class="panel-header">
-            <h2>Details</h2>
+          <div class="nav-bottom">
+            <button class="nav-item" data-view="help">
+              <svg class="nav-icon" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <circle cx="7.5" cy="7.5" r="6"/>
+                <path d="M5.8 5.8a1.8 1.8 0 013.1 1.2c0 1.2-1.4 1.6-1.9 2.5v.3"/>
+                <circle cx="7" cy="11" r=".5" fill="currentColor" stroke="none"/>
+              </svg>
+              <span class="nav-label">Help</span>
+            </button>
+            <button class="nav-item collapse-btn" id="collapse-btn">
+              <svg class="nav-icon collapse-icon" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9.5,3 5.5,7.5 9.5,12"/>
+              </svg>
+              <span class="nav-label">Collapse</span>
+            </button>
           </div>
-          <pre id="details"></pre>
-        </aside>
-      </section>
+        </nav>
 
-      <footer id="status">Ready.</footer>
-    </main>
+        <main class="main-content">
+
+          <!-- My Mods -->
+          <div id="view-mods" class="view active">
+            <section id="drop-zone" class="drop-zone">
+              <div class="drop-left">
+                <img class="drop-icon" src="../public/logo.png" alt="" />
+                <div class="drop-text">
+                  <strong>Drop mod folders or .zip files here</strong>
+                  <span>Enabled mods are deployed on Apply.</span>
+                </div>
+              </div>
+              <div class="drop-actions">
+                <button id="add-folder">Add Folder</button>
+                <button id="add-zip">Add Zip</button>
+              </div>
+            </section>
+
+            <div class="panels">
+              <div class="panel mod-panel">
+                <div class="panel-header">
+                  <h2>Installed Mods</h2>
+                  <div class="panel-header-right">
+                    <button id="sort-toggle" class="sort-btn" title="Sort alphabetically">A–Z</button>
+                    <button id="remove-mod" class="danger">Remove</button>
+                  </div>
+                </div>
+                <div id="mod-list" class="mod-list"></div>
+              </div>
+              <div class="detail-column">
+                <aside class="panel detail-panel">
+                  <div class="panel-header">
+                    <h2>Details</h2>
+                  </div>
+                  <pre id="details"></pre>
+                </aside>
+                <button id="launch-btn" class="primary launch-btn">Launch</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Get Mods -->
+          <div id="view-get-mods" class="view">
+            <div class="view-placeholder">
+              <img src="../public/logo.png" alt="" class="placeholder-logo" />
+              <p>Get Mods</p>
+              <span>Browse and download mods — coming soon.</span>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div id="view-settings" class="view">
+            <div class="settings-content">
+              <div class="settings-section-title">Application</div>
+
+              <div class="settings-row">
+                <div class="settings-label">
+                  <strong>Game Folder</strong>
+                  <span>Must contain the <code>archives_win64</code> folder.</span>
+                </div>
+                <div class="settings-control">
+                  <span id="settings-game-folder" class="settings-path">Not set</span>
+                  <button id="set-game-folder">Change</button>
+                </div>
+              </div>
+
+              <div class="settings-divider"></div>
+
+              <div class="settings-row">
+                <div class="settings-label">
+                  <strong>Steam Launch Options</strong>
+                  <span>Required for the mod loader to activate.</span>
+                </div>
+                <div class="settings-control">
+                  <code id="settings-launch-opts" class="settings-code"></code>
+                  <button id="copy-launch-options">Copy</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Help -->
+          <div id="view-help" class="view">
+            <div class="help-content">
+              <h2>How it works</h2>
+              <ol>
+                <li>Set your game folder in <strong>Settings</strong> — it'll try to auto-detect from Steam.</li>
+                <li>Drop mod folders or <code>.zip</code> files anywhere in the app to import them into the library.</li>
+                <li>Toggle mods on or off in <strong>My Mods</strong>.</li>
+                <li>Click <strong>Apply Mods</strong> or <strong>Apply &amp; Play</strong> to deploy enabled mods and optionally launch the game.</li>
+              </ol>
+              <h2>Steam Launch Options</h2>
+              <p>Paste these into the game's properties on Steam:</p>
+              <code id="help-launch-opts" class="help-code"></code>
+              <h2>Notes</h2>
+              <ul>
+                <li>Toggling a mod only saves the preference — files don't move until you Apply.</li>
+                <li>Mods are stored in the app's local library and copied to the game folder on Apply.</li>
+                <li>Removing a mod deletes it from the library and removes its files on next Apply.</li>
+              </ul>
+            </div>
+          </div>
+
+        </main>
+      </div>
+
+      <footer id="status"></footer>
+    </div>
     <script src="./renderer.js"></script>
   </body>
 </html>

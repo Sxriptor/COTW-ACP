@@ -22,8 +22,10 @@
     "directories": {
       "output": "dist"
     },
+    "icon": "public/logo.png",
     "files": [
       "src/**/*",
+      "public/**/*",
       "package.json"
     ],
     "win": {

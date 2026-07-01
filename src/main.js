@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -16,12 +16,16 @@ let manifestPath;
 let state;
 
 function createWindow() {
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
     width: 1040,
     height: 680,
     minWidth: 760,
     minHeight: 520,
-    backgroundColor: "#111418",
+    frame: false,
+    backgroundColor: "#111111",
+    icon: path.join(__dirname, "../public/logo.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -62,6 +66,11 @@ app.on("activate", () => {
 });
 
 function registerIpc() {
+  ipcMain.handle("window:minimize",     () => mainWindow.minimize());
+  ipcMain.handle("window:maximize",     () => { mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); return mainWindow.isMaximized(); });
+  ipcMain.handle("window:close",        () => mainWindow.close());
+  ipcMain.handle("window:is-maximized", () => mainWindow.isMaximized());
+
   ipcMain.handle("state:get", () => publicState());
 
   ipcMain.handle("game-folder:choose", async () => {
@@ -110,7 +119,6 @@ function registerIpc() {
     if (mod) {
       mod.enabled = !!payload.enabled;
       saveState();
-      autoApplyIfReady();
     }
     return publicState();
   });
