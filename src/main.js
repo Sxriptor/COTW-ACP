@@ -156,7 +156,7 @@ function createWindow() {
     // "ask" — first time only
     const { response, checkboxChecked } = await dialog.showMessageBox(mainWindow, {
       type:            "question",
-      title:           "Angler Mod Manager",
+      title:           "Angler CM",
       message:         "What should happen when you close the window?",
       detail:          "You can change this anytime in Settings.",
       buttons:         ["Minimize to Tray", "Quit"],
@@ -230,6 +230,7 @@ app.whenReady().then(() => {
   fs.mkdirSync(libraryRoot, { recursive: true });
   state = loadJson(statePath, { gameFolder: "", mods: [] });
   appSettings = loadJson(settingsPath, { trayBehavior: "ask" });
+  initProfiles();
 
   if (!isGameFolder(state.gameFolder)) {
     const detected = detectGameFolder();
@@ -312,9 +313,13 @@ function registerIpc() {
   });
 
   ipcMain.handle("mods:set-enabled", (_event, payload) => {
-    const mod = state.mods.find((item) => item.id === payload.id);
-    if (mod) {
-      mod.enabled = !!payload.enabled;
+    const profile = getActiveProfile();
+    if (profile) {
+      if (payload.enabled) {
+        if (!profile.enabledMods.includes(payload.id)) profile.enabledMods.push(payload.id);
+      } else {
+        profile.enabledMods = profile.enabledMods.filter((id) => id !== payload.id);
+      }
       saveState();
     }
     return publicState();
@@ -324,10 +329,51 @@ function registerIpc() {
     const mod = state.mods.find((item) => item.id === id);
     if (mod) {
       state.mods = state.mods.filter((item) => item.id !== id);
+      for (const profile of state.profiles) {
+        profile.enabledMods = profile.enabledMods.filter((eid) => eid !== id);
+      }
       fs.rmSync(modPath(mod), { recursive: true, force: true });
       saveState();
       autoApplyIfReady();
     }
+    return publicState();
+  });
+
+  ipcMain.handle("profiles:switch", (_event, id) => {
+    if (state.profiles.some((p) => p.id === id)) {
+      state.activeProfileId = id;
+      saveState();
+    }
+    return publicState();
+  });
+
+  ipcMain.handle("profiles:create", (_event, name) => {
+    if (state.profiles.length >= 3) throw new Error("Maximum of 3 profiles allowed.");
+    const profile = {
+      id: crypto.randomUUID(),
+      name: (name && name.trim()) || `Profile ${state.profiles.length + 1}`,
+      enabledMods: [],
+    };
+    state.profiles.push(profile);
+    state.activeProfileId = profile.id;
+    saveState();
+    return publicState();
+  });
+
+  ipcMain.handle("profiles:rename", (_event, { id, name }) => {
+    const profile = state.profiles.find((p) => p.id === id);
+    if (profile && name && name.trim()) {
+      profile.name = name.trim();
+      saveState();
+    }
+    return publicState();
+  });
+
+  ipcMain.handle("profiles:delete", (_event, id) => {
+    if (state.profiles.length <= 1) throw new Error("Cannot delete the last profile.");
+    state.profiles = state.profiles.filter((p) => p.id !== id);
+    if (state.activeProfileId === id) state.activeProfileId = state.profiles[0].id;
+    saveState();
     return publicState();
   });
 
@@ -349,14 +395,19 @@ function registerIpc() {
 }
 
 function publicState() {
+  const activeProfile = getActiveProfile();
+  const enabledSet = new Set(activeProfile ? activeProfile.enabledMods : []);
   return {
     gameFolder: state.gameFolder || "",
     launchOptions: LAUNCH_OPTIONS,
     libraryRoot,
+    profiles: state.profiles,
+    activeProfileId: state.activeProfileId,
     mods: state.mods.map((mod) => ({
       ...mod,
       baseName: mod.baseName || mod.name,
       version:  mod.version  || 1,
+      enabled:  enabledSet.has(mod.id),
       files: listModFiles(mod).slice(0, 250),
     })),
   };
@@ -388,6 +439,8 @@ function importDirectory(sourcePath) {
   copyDirectory(payloadRoot, modPath(mod));
   mod.fileCount = countFiles(modPath(mod));
   state.mods.push(mod);
+  const profile = getActiveProfile();
+  if (profile) profile.enabledMods.push(mod.id);
 }
 
 function importZip(zipPath) {
@@ -401,6 +454,8 @@ function importZip(zipPath) {
     copyDirectory(payloadRoot, modPath(mod));
     mod.fileCount = countFiles(modPath(mod));
     state.mods.push(mod);
+    const profile = getActiveProfile();
+    if (profile) profile.enabledMods.push(mod.id);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -438,8 +493,10 @@ function applyEnabledMods() {
   const previous = loadJson(manifestPath, { files: [] });
   removePreviouslyInstalledFiles(modsRoot, previous.files || []);
 
+  const activeProfile = getActiveProfile();
+  const enabledSet = new Set(activeProfile ? activeProfile.enabledMods : []);
   const installed = [];
-  for (const mod of state.mods.filter((item) => item.enabled)) {
+  for (const mod of state.mods.filter((item) => enabledSet.has(item.id))) {
     const root = modPath(mod);
     if (!fs.existsSync(root)) continue;
     for (const file of walkFiles(root)) {
@@ -659,7 +716,7 @@ function createTray() {
   const iconPath = path.join(__dirname, "../public/logo.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
-  tray.setToolTip("Angler Mod Manager");
+  tray.setToolTip("Angler CM");
 
   tray.on("double-click", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -670,7 +727,7 @@ function createTray() {
 
   const menu = Menu.buildFromTemplate([
     {
-      label: "Show Angler Mod Manager",
+      label: "Show Angler CM",
       click: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.show();
@@ -690,4 +747,20 @@ function createTray() {
 
 function saveSettings() {
   saveJson(settingsPath, appSettings);
+}
+
+function getActiveProfile() {
+  return state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0] || null;
+}
+
+function initProfiles() {
+  if (!Array.isArray(state.profiles) || state.profiles.length === 0) {
+    // Migrate: seed default profile from existing mod.enabled flags
+    const enabledMods = state.mods.filter((m) => m.enabled).map((m) => m.id);
+    state.profiles = [{ id: crypto.randomUUID(), name: "Default", enabledMods }];
+  }
+  if (!state.activeProfileId || !state.profiles.some((p) => p.id === state.activeProfileId)) {
+    state.activeProfileId = state.profiles[0].id;
+  }
+  saveState();
 }

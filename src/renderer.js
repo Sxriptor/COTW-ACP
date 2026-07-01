@@ -188,6 +188,8 @@ function render() {
   // Topbar path
   el.gameFolder.textContent = currentState.gameFolder || "Game folder not set";
 
+  renderProfileBar();
+
   // Settings view
   el.settingsGameFolder.textContent = currentState.gameFolder || "Not set";
   el.settingsLaunchOpts.textContent = currentState.launchOptions;
@@ -226,6 +228,82 @@ function render() {
   const selected = currentState.mods.find((m) => m.id === selectedModId);
   el.removeMod.disabled = !selected;
   el.details.textContent = selected ? selectedDetails(selected) : defaultDetails();
+}
+
+function renderProfileBar() {
+  const bar = document.getElementById("profile-bar");
+  bar.innerHTML = "";
+
+  const { profiles = [], activeProfileId } = currentState;
+
+  for (const profile of profiles) {
+    const tab = document.createElement("button");
+    tab.className = `profile-tab${profile.id === activeProfileId ? " active" : ""}`;
+    tab.dataset.id = profile.id;
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "profile-name";
+    nameSpan.textContent = profile.name;
+    tab.append(nameSpan);
+
+    // Delete button (only when multiple profiles)
+    if (profiles.length > 1) {
+      const del = document.createElement("span");
+      del.className = "profile-del";
+      del.textContent = "×";
+      del.title = "Delete profile";
+      del.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await run(`Profile "${profile.name}" deleted.`, () => window.profiles.delete(profile.id));
+      });
+      tab.append(del);
+    }
+
+    // Switch on click
+    tab.addEventListener("click", () => {
+      if (profile.id !== currentState.activeProfileId) {
+        run(`Switched to "${profile.name}".`, () => window.profiles.switch(profile.id));
+      }
+    });
+
+    // Inline rename on double-click
+    tab.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      const input = document.createElement("input");
+      input.className = "profile-rename-input";
+      input.value = profile.name;
+      input.style.cssText = "width:80px;font:inherit;font-size:11.5px;background:transparent;border:none;outline:none;color:inherit;padding:0;";
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const commit = () => {
+        const val = input.value.trim();
+        if (val && val !== profile.name) {
+          run(`Profile renamed to "${val}".`, () => window.profiles.rename(profile.id, val));
+        } else {
+          render(); // revert
+        }
+      };
+      input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); commit(); } if (ev.key === "Escape") render(); });
+      input.addEventListener("blur", commit);
+    });
+
+    bar.append(tab);
+  }
+
+  // Add profile button (hidden when at max 3)
+  if (profiles.length < 3) {
+    const add = document.createElement("button");
+    add.className = "profile-add";
+    add.title = "New profile";
+    add.textContent = "+";
+    add.addEventListener("click", () => {
+      const name = `Profile ${profiles.length + 1}`;
+      run(`Profile "${name}" created.`, () => window.profiles.create(name));
+    });
+    bar.append(add);
+  }
 }
 
 function buildVersionGroups(mods) {

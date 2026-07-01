@@ -319,6 +319,95 @@ body {
   flex-shrink: 0;
 }
 
+/* ── PROFILE BAR ── */
+.profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.profile-tab {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .1s, background .1s, border-color .1s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.profile-tab:hover:not(:disabled) {
+  color: var(--text-2);
+  border-color: var(--border-2);
+  background: var(--panel-2);
+  transform: none;
+}
+
+.profile-tab.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: #000;
+  font-weight: 700;
+}
+
+.profile-tab.active:hover:not(:disabled) {
+  background: #d0d0d0;
+  border-color: #d0d0d0;
+  color: #000;
+}
+
+.profile-del {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  margin-left: 2px;
+  transition: opacity .1s;
+  color: inherit;
+}
+
+.profile-tab:hover .profile-del,
+.profile-tab.active .profile-del {
+  opacity: .5;
+}
+
+.profile-tab:hover .profile-del:hover,
+.profile-tab.active .profile-del:hover {
+  opacity: 1;
+}
+
+.profile-add {
+  height: 26px;
+  width: 26px;
+  padding: 0;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border-2);
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .1s, border-color .1s;
+}
+
+.profile-add:hover {
+  color: var(--text-2);
+  border-color: var(--border-2);
+  background: var(--panel-2);
+  transform: none;
+}
+
 .panels {
   flex: 1;
   min-height: 0;

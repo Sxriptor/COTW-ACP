@@ -1,5 +1,5 @@
 {
-  "name": "ACM - (Angler Content Manager)",
+  "name": "angler-cm",
   "version": "1.0.0",
   "author": "Cole Templin (https://github.com/sxriptor)",
   "description": "ACM - (Angler Content Manager)",
@@ -22,7 +22,7 @@
   },
   "build": {
     "appId": "com.watrways.acm",
-    "productName": "ACM - (Angler Content Manager)",
+    "productName": "ACM",
     "directories": {
       "output": "dist"
     },

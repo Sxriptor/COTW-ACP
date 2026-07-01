@@ -14,6 +14,13 @@ contextBridge.exposeInMainWorld("angler", {
   pathForFile:       (file) => webUtils.getPathForFile(file),
 });
 
+contextBridge.exposeInMainWorld("profiles", {
+  switch: (id)         => ipcRenderer.invoke("profiles:switch", id),
+  create: (name)       => ipcRenderer.invoke("profiles:create", name),
+  rename: (id, name)   => ipcRenderer.invoke("profiles:rename", { id, name }),
+  delete: (id)         => ipcRenderer.invoke("profiles:delete", id),
+});
+
 contextBridge.exposeInMainWorld("appSettings", {
   get:            () => ipcRenderer.invoke("settings:get"),
   setTray:        (v) => ipcRenderer.invoke("settings:set-tray", v),
