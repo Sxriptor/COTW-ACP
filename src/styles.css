@@ -417,6 +417,14 @@ body {
   padding-left: 10px;
 }
 
+.mod-name-area {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .mod-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -427,6 +435,19 @@ body {
 }
 
 .mod-row.selected .mod-name { color: var(--text); }
+
+.mod-version {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  color: var(--muted);
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .mod-count {
   font-size: 10px;

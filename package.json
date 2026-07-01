@@ -1,13 +1,15 @@
 {
-  "name": "angler-mod-manager-electron",
+  "name": "ACM - (Angler Content Manager)",
   "version": "1.0.0",
-  "description": "Electron mod manager for Call of the Wild: The Angler",
+  "author": "Cole Templin (https://github.com/sxriptor)",
+  "description": "ACM - (Angler Content Manager)",
   "main": "src/main.js",
   "private": true,
   "scripts": {
     "dev": "electron .",
-    "dist:win": "electron-builder --win",
-    "pack:win": "electron-builder --win --dir"
+    "make-ico": "node scripts/make-ico.js",
+    "dist:win": "npm run make-ico && electron-builder --win",
+    "pack:win": "npm run make-ico && electron-builder --win --dir"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -15,15 +17,16 @@
   },
   "devDependencies": {
     "electron": "^31.7.7",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1"
   },
   "build": {
-    "appId": "com.anglertools.modmanager",
-    "productName": "Angler Mod Manager",
+    "appId": "com.watrways.acm",
+    "productName": "ACM - (Angler Content Manager)",
     "directories": {
       "output": "dist"
     },
-    "icon": "public/logo.png",
+    "icon": "public/logo.ico",
     "files": [
       "src/**/*",
       "public/**/*",
@@ -40,12 +43,14 @@
         "nsis",
         "portable"
       ],
-      "icon": "public/logo.png"
+      "icon": "public/logo.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "ACM-installer.exe"
+      "artifactName": "ACM-installer.exe",
+      "installerIcon": "public/logo.ico",
+      "uninstallerIcon": "public/logo.ico"
     },
     "portable": {
       "artifactName": "ACM-portable.exe"

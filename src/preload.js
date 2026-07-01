@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld("angler", {
   pathForFile:       (file) => webUtils.getPathForFile(file),
 });
 
+contextBridge.exposeInMainWorld("appSettings", {
+  get:            () => ipcRenderer.invoke("settings:get"),
+  setTray:        (v) => ipcRenderer.invoke("settings:set-tray", v),
+  onTrayChanged:  (cb) => ipcRenderer.on("settings:tray-changed", (_, v) => cb(v)),
+});
+
 contextBridge.exposeInMainWorld("updater", {
   onAvailable:  (cb) => ipcRenderer.on("update:available",  (_, info) => cb(info)),
   onProgress:   (cb) => ipcRenderer.on("update:progress",   (_, p)    => cb(p)),

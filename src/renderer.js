@@ -26,6 +26,7 @@ const el = {
 
 wireEvents();
 refresh();
+initSettings();
 
 function wireEvents() {
   // Launch
@@ -203,6 +204,7 @@ function render() {
     empty.innerHTML = `<img class="empty-icon" src="../public/logo.png" alt=""/><div>No mods installed</div><div style="font-size:11px;margin-top:2px;color:var(--muted)">Drop a folder or .zip above to get started</div>`;
     el.modList.append(empty);
   } else {
+    const versionGroups = buildVersionGroups(currentState.mods);
     const groups = buildModGroups(currentState.mods);
     for (const group of groups) {
       if (group.label) {
@@ -212,7 +214,7 @@ function render() {
         el.modList.append(header);
       }
       for (const mod of group.mods) {
-        el.modList.append(buildModRow(mod));
+        el.modList.append(buildModRow(mod, versionGroups));
       }
     }
   }
@@ -224,6 +226,15 @@ function render() {
   const selected = currentState.mods.find((m) => m.id === selectedModId);
   el.removeMod.disabled = !selected;
   el.details.textContent = selected ? selectedDetails(selected) : defaultDetails();
+}
+
+function buildVersionGroups(mods) {
+  const counts = {};
+  for (const mod of mods) {
+    const base = mod.baseName || mod.name;
+    counts[base] = (counts[base] || 0) + 1;
+  }
+  return counts;
 }
 
 function buildModGroups(mods) {
@@ -244,7 +255,7 @@ function buildModGroups(mods) {
   ];
 }
 
-function buildModRow(mod) {
+function buildModRow(mod, versionGroups = {}) {
   const row = document.createElement("div");
   row.className = `mod-row${mod.id === selectedModId ? " selected" : ""}`;
   row.addEventListener("click", () => { selectedModId = mod.id; render(); });
@@ -264,32 +275,64 @@ function buildModRow(mod) {
   track.className = "toggle-track";
   label.append(checkbox, track);
 
+  const nameArea = document.createElement("div");
+  nameArea.className = "mod-name-area";
+
   const name = document.createElement("div");
   name.className = "mod-name";
   name.textContent = mod.name;
+  nameArea.append(name);
+
+  const base = mod.baseName || mod.name;
+  if ((versionGroups[base] || 0) > 1) {
+    const badge = document.createElement("span");
+    badge.className = "mod-version";
+    badge.textContent = `v${mod.version || 1}`;
+    nameArea.append(badge);
+  }
 
   const count = document.createElement("div");
   count.className = "mod-count";
   count.textContent = `${mod.fileCount} file${mod.fileCount === 1 ? "" : "s"}`;
 
-  row.append(label, name, count);
+  row.append(label, nameArea, count);
   return row;
 }
 
 function selectedDetails(mod) {
+  const versionGroups = buildVersionGroups(currentState.mods);
+  const base = mod.baseName || mod.name;
+  const totalVersions = versionGroups[base] || 1;
+
   return [
     `Name:     ${mod.name}`,
+    totalVersions > 1 ? `Version:  v${mod.version || 1} of ${totalVersions}` : null,
     `Enabled:  ${mod.enabled ? "yes" : "no"}`,
     `Files:    ${mod.fileCount}`,
     `Imported: ${mod.importedAt || ""}`,
     "",
     "Files:",
     ...(mod.files && mod.files.length ? mod.files : ["(none)"]),
-  ].join("\n");
+  ].filter((l) => l !== null).join("\n");
 }
 
 function defaultDetails() {
   return "Select a mod to see details.";
+}
+
+async function initSettings() {
+  const trayToggle = document.getElementById("tray-toggle");
+  const s = await window.appSettings.get();
+  trayToggle.checked = s.trayBehavior === "tray";
+
+  trayToggle.addEventListener("change", () => {
+    window.appSettings.setTray(trayToggle.checked ? "tray" : "quit");
+  });
+
+  // Sync if the main-process dialog sets it (via "remember my choice")
+  window.appSettings.onTrayChanged((value) => {
+    trayToggle.checked = value === "tray";
+  });
 }
 
 function setStatus(text, isError = false) {

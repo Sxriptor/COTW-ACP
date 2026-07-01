@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell, Tray } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -12,6 +12,10 @@ const LAUNCH_OPTIONS = "--vfs-fs mods --vfs-archive archives_win64";
 const SPLASH_MIN_DURATION_MS = 3000;
 
 let mainWindow;
+let tray = null;
+let isQuitting = false;
+let appSettings;
+let settingsPath;
 let splashWindow;
 let splashShownAt = 0;
 let mainWindowRevealPending = false;
@@ -109,7 +113,7 @@ function createWindow() {
     frame: false,
     show: false,
     backgroundColor: "#111111",
-    icon: path.join(__dirname, "../public/logo.png"),
+    icon: path.join(__dirname, "../public/logo.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -131,6 +135,54 @@ function createWindow() {
       revealMainWindowAfterSplash();
     }
   }, 30000);
+
+  mainWindow.on("close", async (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+
+    const behavior = appSettings.trayBehavior;
+
+    if (behavior === "tray") {
+      mainWindow.hide();
+      return;
+    }
+
+    if (behavior === "quit") {
+      isQuitting = true;
+      app.quit();
+      return;
+    }
+
+    // "ask" — first time only
+    const { response, checkboxChecked } = await dialog.showMessageBox(mainWindow, {
+      type:            "question",
+      title:           "Angler Mod Manager",
+      message:         "What should happen when you close the window?",
+      detail:          "You can change this anytime in Settings.",
+      buttons:         ["Minimize to Tray", "Quit"],
+      defaultId:       0,
+      cancelId:        1,
+      checkboxLabel:   "Remember my choice — don't ask again",
+      checkboxChecked: false,
+    });
+
+    const chosen = response === 0 ? "tray" : "quit";
+
+    if (checkboxChecked) {
+      appSettings.trayBehavior = chosen;
+      saveSettings();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("settings:tray-changed", chosen);
+      }
+    }
+
+    if (chosen === "tray") {
+      mainWindow.hide();
+    } else {
+      isQuitting = true;
+      app.quit();
+    }
+  });
 
   mainWindow.loadFile(path.join(__dirname, "index.html"));
 
@@ -174,8 +226,10 @@ app.whenReady().then(() => {
   libraryRoot = path.join(dataRoot, "mods");
   statePath = path.join(dataRoot, "state.json");
   manifestPath = path.join(dataRoot, "installed-files.json");
+  settingsPath = path.join(dataRoot, "settings.json");
   fs.mkdirSync(libraryRoot, { recursive: true });
   state = loadJson(statePath, { gameFolder: "", mods: [] });
+  appSettings = loadJson(settingsPath, { trayBehavior: "ask" });
 
   if (!isGameFolder(state.gameFolder)) {
     const detected = detectGameFolder();
@@ -188,10 +242,14 @@ app.whenReady().then(() => {
 
   registerIpc();
   createWindow();
+  createTray();
 });
 
+app.on("before-quit", () => { isQuitting = true; });
+
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // Stay alive in tray; only quit if explicitly quitting or no tray
+  if (process.platform !== "darwin" && (isQuitting || !tray)) app.quit();
 });
 
 app.on("activate", () => {
@@ -199,6 +257,9 @@ app.on("activate", () => {
 });
 
 function registerIpc() {
+  ipcMain.handle("settings:get",       () => ({ trayBehavior: appSettings.trayBehavior }));
+  ipcMain.handle("settings:set-tray",  (_, value) => { appSettings.trayBehavior = value; saveSettings(); });
+
   ipcMain.handle("update:download", () => autoUpdater.downloadUpdate().catch(() => {}));
   ipcMain.handle("update:install",  () => autoUpdater.quitAndInstall());
 
@@ -294,6 +355,8 @@ function publicState() {
     libraryRoot,
     mods: state.mods.map((mod) => ({
       ...mod,
+      baseName: mod.baseName || mod.name,
+      version:  mod.version  || 1,
       files: listModFiles(mod).slice(0, 250),
     })),
   };
@@ -344,9 +407,21 @@ function importZip(zipPath) {
 }
 
 function createMod(name) {
+  const baseName = (name && name.trim()) ? name.trim() : "Unnamed Mod";
+
+  const existingVersions = state.mods
+    .filter((m) => (m.baseName || m.name) === baseName)
+    .map((m) => m.version || 1);
+
+  const version = existingVersions.length > 0
+    ? Math.max(...existingVersions) + 1
+    : 1;
+
   return {
     id: crypto.randomUUID(),
-    name: name && name.trim() ? name.trim() : "Unnamed Mod",
+    name: baseName,
+    baseName,
+    version,
     enabled: true,
     fileCount: 0,
     importedAt: new Date().toISOString(),
@@ -578,4 +653,41 @@ function saveJson(file, value) {
 
 function stripTrailingSlash(value) {
   return value.replace(/[\\/]+$/, "");
+}
+
+function createTray() {
+  const iconPath = path.join(__dirname, "../public/logo.png");
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip("Angler Mod Manager");
+
+  tray.on("double-click", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: "Show Angler Mod Manager",
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => { isQuitting = true; app.quit(); },
+    },
+  ]);
+
+  tray.setContextMenu(menu);
+}
+
+function saveSettings() {
+  saveJson(settingsPath, appSettings);
 }
