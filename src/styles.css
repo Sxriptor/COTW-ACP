@@ -779,6 +779,22 @@ button.danger:hover:not(:disabled) {
   word-break: break-all;
 }
 
+.settings-select {
+  min-width: 84px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 12px;
+  outline: none;
+}
+
+.settings-select:focus {
+  border-color: var(--text-2);
+}
+
 .settings-divider {
   height: 1px;
   background: var(--border);

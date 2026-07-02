@@ -178,6 +178,42 @@
                   </label>
                 </div>
               </div>
+
+              <div class="settings-divider"></div>
+
+              <div class="settings-row">
+                <div class="settings-label">
+                  <strong>Game Overlay</strong>
+                  <span>Show a small always-on-top overlay over the active game using a global hotkey.</span>
+                </div>
+                <div class="settings-control">
+                  <label class="toggle" id="overlay-toggle-label">
+                    <input type="checkbox" id="overlay-toggle" />
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="settings-divider"></div>
+
+              <div class="settings-row">
+                <div class="settings-label">
+                  <strong>Overlay Hotkey</strong>
+                  <span>Works while the game has focus. Borderless or windowed games will behave best.</span>
+                </div>
+                <div class="settings-control">
+                  <select id="overlay-hotkey" class="settings-select">
+                    <option value="F6">F6</option>
+                    <option value="F7">F7</option>
+                    <option value="F8">F8</option>
+                    <option value="F9">F9</option>
+                    <option value="F10">F10</option>
+                    <option value="F11">F11</option>
+                    <option value="F12">F12</option>
+                  </select>
+                  <button id="overlay-preview">Preview</button>
+                </div>
+              </div>
             </div>
           </div>
 

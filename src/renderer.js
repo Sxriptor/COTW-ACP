@@ -22,6 +22,10 @@ const el = {
   settingsGameFolder:document.getElementById("settings-game-folder"),
   settingsLaunchOpts:document.getElementById("settings-launch-opts"),
   helpLaunchOpts:    document.getElementById("help-launch-opts"),
+  trayToggle:        document.getElementById("tray-toggle"),
+  overlayToggle:     document.getElementById("overlay-toggle"),
+  overlayHotkey:     document.getElementById("overlay-hotkey"),
+  overlayPreview:    document.getElementById("overlay-preview"),
 };
 
 wireEvents();
@@ -133,6 +137,31 @@ function wireEvents() {
     if (icon) icon.setAttribute("y", maximized ? "3" : ".5");
   });
   document.getElementById("win-close").addEventListener("click", () => window.win.close());
+
+  el.overlayToggle.addEventListener("change", async () => {
+    const result = await window.appSettings.setOverlayEnabled(el.overlayToggle.checked);
+    if (!result.ok && el.overlayToggle.checked) {
+      el.overlayToggle.checked = false;
+      setStatus(`Could not register ${result.overlayHotkey}. Another app may already be using it.`, true);
+      return;
+    }
+    setStatus(`Overlay ${result.overlayEnabled ? "enabled" : "disabled"}.`);
+  });
+
+  el.overlayHotkey.addEventListener("change", async () => {
+    const result = await window.appSettings.setOverlayHotkey(el.overlayHotkey.value);
+    el.overlayHotkey.value = result.overlayHotkey;
+    if (!result.ok) {
+      setStatus(`Could not register ${result.overlayHotkey}. Another app may already be using it.`, true);
+      return;
+    }
+    setStatus(`Overlay hotkey set to ${result.overlayHotkey}.`);
+  });
+
+  el.overlayPreview.addEventListener("click", async () => {
+    await window.overlay.toggle();
+    setStatus("Overlay toggled.");
+  });
 }
 
 function switchView(name) {
@@ -149,6 +178,23 @@ async function refresh() {
   currentState = await window.angler.getState();
   knownModIds = new Set(currentState.mods.map((m) => m.id));
   render();
+}
+
+async function initSettings() {
+  const settings = await window.appSettings.get();
+  el.trayToggle.checked = settings.trayBehavior === "tray";
+  el.overlayToggle.checked = !!settings.overlayEnabled;
+  el.overlayHotkey.value = settings.overlayHotkey || "F8";
+
+  el.trayToggle.addEventListener("change", async () => {
+    const next = el.trayToggle.checked ? "tray" : "quit";
+    await window.appSettings.setTray(next);
+    setStatus(el.trayToggle.checked ? "Closing now minimizes to tray." : "Closing now quits the app.");
+  });
+
+  window.appSettings.onTrayChanged((value) => {
+    el.trayToggle.checked = value === "tray";
+  });
 }
 
 async function run(successText, action) {
@@ -396,21 +442,6 @@ function selectedDetails(mod) {
 
 function defaultDetails() {
   return "Select a mod to see details.";
-}
-
-async function initSettings() {
-  const trayToggle = document.getElementById("tray-toggle");
-  const s = await window.appSettings.get();
-  trayToggle.checked = s.trayBehavior === "tray";
-
-  trayToggle.addEventListener("change", () => {
-    window.appSettings.setTray(trayToggle.checked ? "tray" : "quit");
-  });
-
-  // Sync if the main-process dialog sets it (via "remember my choice")
-  window.appSettings.onTrayChanged((value) => {
-    trayToggle.checked = value === "tray";
-  });
 }
 
 function setStatus(text, isError = false) {

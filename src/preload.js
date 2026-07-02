@@ -24,7 +24,13 @@ contextBridge.exposeInMainWorld("profiles", {
 contextBridge.exposeInMainWorld("appSettings", {
   get:            () => ipcRenderer.invoke("settings:get"),
   setTray:        (v) => ipcRenderer.invoke("settings:set-tray", v),
+  setOverlayEnabled: (v) => ipcRenderer.invoke("settings:set-overlay-enabled", v),
+  setOverlayHotkey:  (v) => ipcRenderer.invoke("settings:set-overlay-hotkey", v),
   onTrayChanged:  (cb) => ipcRenderer.on("settings:tray-changed", (_, v) => cb(v)),
+});
+
+contextBridge.exposeInMainWorld("overlay", {
+  toggle: () => ipcRenderer.invoke("overlay:toggle"),
 });
 
 contextBridge.exposeInMainWorld("updater", {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -17,6 +17,7 @@ let isQuitting = false;
 let appSettings;
 let settingsPath;
 let splashWindow;
+let overlayWindow;
 let splashShownAt = 0;
 let mainWindowRevealPending = false;
 let dataRoot;
@@ -24,6 +25,14 @@ let libraryRoot;
 let statePath;
 let manifestPath;
 let state;
+
+const DEFAULT_OVERLAY_SETTINGS = {
+  trayBehavior: "ask",
+  overlayEnabled: false,
+  overlayHotkey: "F8",
+};
+
+const ALLOWED_OVERLAY_HOTKEYS = new Set(["F6", "F7", "F8", "F9", "F10", "F11", "F12"]);
 
 function getSplashVideoPath() {
   return app.isPackaged
@@ -191,6 +200,87 @@ function createWindow() {
   }
 }
 
+function createOverlayWindow() {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    return overlayWindow;
+  }
+
+  overlayWindow = new BrowserWindow({
+    width: 320,
+    height: 220,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  overlayWindow.setAlwaysOnTop(true, "screen-saver");
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  overlayWindow.on("closed", () => {
+    overlayWindow = null;
+  });
+
+  overlayWindow.loadFile(path.join(__dirname, "overlay.html"));
+  positionOverlayWindow();
+  return overlayWindow;
+}
+
+function positionOverlayWindow() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    return;
+  }
+  const display = screen.getPrimaryDisplay();
+  const bounds = display.workArea;
+  const size = overlayWindow.getBounds();
+  overlayWindow.setBounds({
+    x: Math.round(bounds.x + bounds.width - size.width - 24),
+    y: Math.round(bounds.y + bounds.height - size.height - 24),
+    width: size.width,
+    height: size.height,
+  });
+}
+
+function toggleOverlayWindow() {
+  const win = createOverlayWindow();
+  positionOverlayWindow();
+  if (win.isVisible()) {
+    win.hide();
+  } else {
+    win.showInactive();
+  }
+}
+
+function normalizeOverlayHotkey(value) {
+  const candidate = String(value || "").trim().toUpperCase();
+  return ALLOWED_OVERLAY_HOTKEYS.has(candidate) ? candidate : DEFAULT_OVERLAY_SETTINGS.overlayHotkey;
+}
+
+function registerOverlayShortcut() {
+  globalShortcut.unregisterAll();
+  if (!appSettings.overlayEnabled) {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.hide();
+    }
+    return true;
+  }
+  const accelerator = normalizeOverlayHotkey(appSettings.overlayHotkey);
+  appSettings.overlayHotkey = accelerator;
+  return globalShortcut.register(accelerator, toggleOverlayWindow);
+}
+
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -229,7 +319,8 @@ app.whenReady().then(() => {
   settingsPath = path.join(dataRoot, "settings.json");
   fs.mkdirSync(libraryRoot, { recursive: true });
   state = loadJson(statePath, { gameFolder: "", mods: [] });
-  appSettings = loadJson(settingsPath, { trayBehavior: "ask" });
+  appSettings = { ...DEFAULT_OVERLAY_SETTINGS, ...loadJson(settingsPath, DEFAULT_OVERLAY_SETTINGS) };
+  appSettings.overlayHotkey = normalizeOverlayHotkey(appSettings.overlayHotkey);
   initProfiles();
 
   if (!isGameFolder(state.gameFolder)) {
@@ -244,9 +335,11 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   createTray();
+  registerOverlayShortcut();
 });
 
 app.on("before-quit", () => { isQuitting = true; });
+app.on("will-quit", () => { globalShortcut.unregisterAll(); });
 
 app.on("window-all-closed", () => {
   // Stay alive in tray; only quit if explicitly quitting or no tray
@@ -258,8 +351,46 @@ app.on("activate", () => {
 });
 
 function registerIpc() {
-  ipcMain.handle("settings:get",       () => ({ trayBehavior: appSettings.trayBehavior }));
-  ipcMain.handle("settings:set-tray",  (_, value) => { appSettings.trayBehavior = value; saveSettings(); });
+  ipcMain.handle("settings:get", () => ({
+    trayBehavior: appSettings.trayBehavior,
+    overlayEnabled: !!appSettings.overlayEnabled,
+    overlayHotkey: normalizeOverlayHotkey(appSettings.overlayHotkey),
+  }));
+  ipcMain.handle("settings:set-tray", (_, value) => {
+    appSettings.trayBehavior = value;
+    saveSettings();
+  });
+  ipcMain.handle("settings:set-overlay-enabled", (_, value) => {
+    appSettings.overlayEnabled = !!value;
+    const registered = registerOverlayShortcut();
+    saveSettings();
+    return {
+      ok: registered,
+      overlayEnabled: appSettings.overlayEnabled,
+      overlayHotkey: appSettings.overlayHotkey,
+    };
+  });
+  ipcMain.handle("settings:set-overlay-hotkey", (_, value) => {
+    const previous = appSettings.overlayHotkey;
+    appSettings.overlayHotkey = normalizeOverlayHotkey(value);
+    const registered = registerOverlayShortcut();
+    if (!registered) {
+      appSettings.overlayHotkey = previous;
+      registerOverlayShortcut();
+    }
+    saveSettings();
+    return {
+      ok: registered,
+      overlayEnabled: appSettings.overlayEnabled,
+      overlayHotkey: appSettings.overlayHotkey,
+    };
+  });
+  ipcMain.handle("overlay:toggle", () => {
+    toggleOverlayWindow();
+    return {
+      visible: !!overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible(),
+    };
+  });
 
   ipcMain.handle("update:download", () => autoUpdater.downloadUpdate().catch(() => {}));
   ipcMain.handle("update:install",  () => autoUpdater.quitAndInstall());
