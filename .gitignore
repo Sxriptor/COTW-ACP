@@ -4,6 +4,10 @@ node_modules/
 # Build output
 dist/
 
+# Bundled Cheat Engine (populated at build time by scripts/prepare-cheatengine.js
+# from a local install; not committed — see README "Shipping Cheat Engine")
+resources/cheatengine/
+
 # Electron builder cache
 .cache/
 

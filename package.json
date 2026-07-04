@@ -8,8 +8,9 @@
   "scripts": {
     "dev": "electron .",
     "make-ico": "node scripts/make-ico.js",
-    "dist:win": "npm run make-ico && electron-builder --win",
-    "pack:win": "npm run make-ico && electron-builder --win --dir"
+    "prepare-cheatengine": "node scripts/prepare-cheatengine.js",
+    "dist:win": "npm run make-ico && npm run prepare-cheatengine && electron-builder --win",
+    "pack:win": "npm run make-ico && npm run prepare-cheatengine && electron-builder --win --dir"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -36,6 +37,14 @@
       {
         "from": "public/splash.mp4",
         "to": "splash.mp4"
+      },
+      {
+        "from": "resources/fasttravel_unlock.CT",
+        "to": "fasttravel_unlock.CT"
+      },
+      {
+        "from": "resources/cheatengine",
+        "to": "cheatengine"
       }
     ],
     "win": {

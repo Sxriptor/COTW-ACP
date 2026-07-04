@@ -7,19 +7,20 @@
     <style>
       :root {
         color-scheme: dark;
-        --panel: rgba(10, 14, 19, 0.82);
+        --panel: rgba(10, 14, 19, 0.86);
         --panel-edge: rgba(188, 212, 255, 0.14);
         --text: #eef4ff;
         --muted: #9fb4d1;
         --accent: #9ad0ff;
+        --btn: rgba(154, 208, 255, 0.14);
+        --btn-border: rgba(154, 208, 255, 0.32);
+        --btn-on: rgba(120, 220, 150, 0.18);
+        --btn-on-border: rgba(120, 220, 150, 0.4);
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
-      html,
-      body {
+      html, body {
         margin: 0;
         width: 100%;
         height: 100%;
@@ -28,9 +29,7 @@
         font-family: "Segoe UI", Tahoma, sans-serif;
       }
 
-      body {
-        padding: 14px;
-      }
+      body { padding: 14px; }
 
       .overlay-card {
         width: 100%;
@@ -56,35 +55,44 @@
       }
 
       .title {
-        margin-top: 8px;
-        font-size: 18px;
+        margin-top: 6px;
+        font-size: 16px;
         font-weight: 700;
         color: var(--text);
       }
 
-      .copy {
+      #ft-btn {
+        margin-top: 12px;
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--btn-border);
+        background: var(--btn);
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background .15s, border-color .15s, opacity .15s;
+      }
+      #ft-btn:hover:not(:disabled) { background: rgba(154, 208, 255, 0.22); }
+      #ft-btn:disabled { opacity: .45; cursor: default; }
+      #ft-btn.on { background: var(--btn-on); border-color: var(--btn-on-border); }
+      #ft-btn.on:hover:not(:disabled) { background: rgba(120, 220, 150, 0.26); }
+
+      #ft-status {
         margin-top: 10px;
-        font-size: 12px;
-        line-height: 1.55;
+        font-size: 11.5px;
+        line-height: 1.5;
         color: var(--muted);
-        max-width: 26ch;
       }
 
       .footer {
+        margin-top: 10px;
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        font-size: 11px;
+        justify-content: flex-end;
+        font-size: 10.5px;
         color: var(--muted);
-      }
-
-      .pill {
-        padding: 5px 8px;
-        border-radius: 999px;
-        border: 1px solid rgba(154, 208, 255, 0.22);
-        color: var(--text);
-        background: rgba(154, 208, 255, 0.08);
       }
     </style>
   </head>
@@ -92,13 +100,14 @@
     <div class="overlay-card">
       <div>
         <div class="eyebrow">ACM Overlay</div>
-        <div class="title">Overlay active</div>
-        <div class="copy">This window stays above the game so future tools, fish data, or sonar UI can live here.</div>
+        <div class="title">Fast Travel</div>
+        <button id="ft-btn" type="button">Unlock All Fast Travel</button>
+        <div id="ft-status">Checking status…</div>
       </div>
       <div class="footer">
-        <span>Press the hotkey again to hide</span>
-        <span class="pill">Prototype</span>
+        <span>Hotkey hides this panel</span>
       </div>
     </div>
+    <script src="overlay-renderer.js"></script>
   </body>
-  </html>
+</html>

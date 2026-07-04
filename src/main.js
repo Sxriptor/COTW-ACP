@@ -6,8 +6,21 @@ const os = require("os");
 const crypto = require("crypto");
 const AdmZip = require("adm-zip");
 const { pathToFileURL } = require("url");
+const { spawn } = require("child_process");
+const https = require("https");
 
 const STEAM_APP_ID = "1408610";
+
+// Cheat Engine executable candidates (first existing one wins). ACM's own
+// downloaded copy under userData is checked too (see cheatEngineDownloadDir).
+const CE_EXE_NAMES = [
+  "cheatengine-x86_64.exe",
+  "cheatengine-x86_64-SSE4-AVX2.exe",
+  "cheatengine-i386.exe",
+  "Cheat Engine.exe",
+];
+// Official Cheat Engine installer (used only if CE isn't already installed).
+const CE_DOWNLOAD_URL = "https://github.com/cheat-engine/cheat-engine/releases/download/7.5/CheatEngine75.exe";
 const LAUNCH_OPTIONS = "--vfs-fs mods --vfs-archive archives_win64";
 const SPLASH_MIN_DURATION_MS = 3000;
 
@@ -223,6 +236,7 @@ function createOverlayWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
@@ -522,6 +536,178 @@ function registerIpc() {
   ipcMain.handle("launch-options:copy", () => {
     clipboard.writeText(LAUNCH_OPTIONS);
     return LAUNCH_OPTIONS;
+  });
+
+  // ---- Fast-Travel Unlock (Cheat Engine memory mod) ----
+  ipcMain.handle("fasttravel:status", () => fasttravelStatus());
+  ipcMain.handle("fasttravel:start", () => startFastTravel());
+  ipcMain.handle("fasttravel:stop", () => stopFastTravel());
+  ipcMain.handle("fasttravel:download-ce", (event) => downloadCheatEngine(event));
+}
+
+// ============================ Fast-Travel Unlock ============================
+// A Cheat Engine table (fasttravel_unlock.CT) carries the auto-attach Lua mod.
+// Launching CE with that table auto-runs it, so the user never touches the
+// Lua Engine. ON/OFF is controlled by writing "1"/"0" to a small shared state
+// file that the running Lua script polls every second — so toggling from
+// ACM's main window OR the in-game overlay button is instant and doesn't
+// require relaunching Cheat Engine. CE is only ever launched once per
+// session; after that we just flip the flag file.
+
+let ceProcess = null;
+
+function cheatEngineDownloadDir() {
+  return path.join(dataRoot, "cheatengine");
+}
+
+// Shared with the .CT Lua script (same TEMP dir resolution on both sides).
+function fasttravelStateFile() {
+  return path.join(os.tmpdir(), "acm_fasttravel_state.txt");
+}
+
+function writeFasttravelState(on) {
+  try { fs.writeFileSync(fasttravelStateFile(), on ? "1" : "0"); } catch (_) {}
+}
+
+function readFasttravelState() {
+  try { return fs.readFileSync(fasttravelStateFile(), "utf8").trim() === "1"; } catch (_) { return false; }
+}
+
+// Best-effort check for whether a Cheat Engine process is alive, independent
+// of whether *we* launched it (covers the user having it open already).
+function isCheatEngineRunning() {
+  if (ceProcess && !ceProcess.killed) return true;
+  try {
+    const out = require("child_process").execSync(
+      'tasklist /FI "IMAGENAME eq cheatengine-x86_64.exe"', { encoding: "utf8" }
+    );
+    return /cheatengine/i.test(out);
+  } catch (_) { return false; }
+}
+
+// Where ACM's own bundled copy of Cheat Engine lives (populated at build
+// time by scripts/prepare-cheatengine.js from a trimmed local install).
+function bundledCheatEngineDir() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "cheatengine")
+    : path.join(app.getAppPath(), "resources", "cheatengine");
+}
+
+// Finds a usable Cheat Engine executable. Prefers the user's own install (so
+// their existing settings/tables/plugins keep working) and falls back to
+// ACM's bundled copy, then to a copy ACM previously downloaded itself.
+// Returns { path, source } or null if none found anywhere.
+function findCheatEngine() {
+  const pf   = process.env["ProgramFiles"]      || "C:/Program Files";
+  const pf86 = process.env["ProgramFiles(x86)"] || "C:/Program Files (x86)";
+  const roots = [
+    { dir: path.join(pf,   "Cheat Engine"), source: "user" },
+    { dir: path.join(pf86, "Cheat Engine"), source: "user" },
+    { dir: bundledCheatEngineDir(),         source: "bundled" },
+    { dir: cheatEngineDownloadDir(),        source: "downloaded" },
+  ];
+  for (const { dir, source } of roots) {
+    for (const name of CE_EXE_NAMES) {
+      const full = path.join(dir, name);
+      try { if (fs.existsSync(full)) return { path: full, source }; } catch (_) {}
+    }
+  }
+  return null;
+}
+
+function fasttravelTablePath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "fasttravel_unlock.CT")
+    : path.join(app.getAppPath(), "resources", "fasttravel_unlock.CT");
+}
+
+function fasttravelStatus() {
+  const ceRunning = isCheatEngineRunning();
+  const found = findCheatEngine();
+  return {
+    ceInstalled: !!found,
+    cePath: found ? found.path : "",
+    ceSource: found ? found.source : null, // "user" | "bundled" | "downloaded"
+    ceRunning,
+    tablePresent: fs.existsSync(fasttravelTablePath()),
+    // "on" = the mod is actively revealing waypoints right now.
+    on: ceRunning && readFasttravelState(),
+  };
+}
+
+// Turns the mod ON. Launches Cheat Engine with the table the first time
+// (auto-attaches, auto-runs); after that, just flips the shared flag so the
+// already-running script picks it up within ~1s.
+function startFastTravel() {
+  writeFasttravelState(true);
+  if (isCheatEngineRunning()) return { ok: true, on: true, launched: false };
+
+  const found = findCheatEngine();
+  if (!found) return { ok: false, error: "ce-not-found" };
+  const table = fasttravelTablePath();
+  if (!fs.existsSync(table)) return { ok: false, error: "table-missing" };
+  try {
+    ceProcess = spawn(found.path, [table], { detached: true, stdio: "ignore" });
+    ceProcess.on("exit", () => { ceProcess = null; });
+    ceProcess.unref();
+    return { ok: true, on: true, launched: true };
+  } catch (err) {
+    ceProcess = null;
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
+// Turns the mod OFF. Leaves Cheat Engine running (attached) so re-enabling
+// is instant; the script itself re-locks only the points it revealed,
+// leaving anything genuinely traveled-to untouched. We never touch save
+// files or kill the process here.
+function stopFastTravel() {
+  writeFasttravelState(false);
+  return { ok: true, on: false };
+}
+
+// Download the official Cheat Engine installer into ACM's data dir, then open
+// it so the user can install (CE isn't distributed as a silent portable).
+// Progress is streamed to the renderer via "fasttravel:download-progress".
+function downloadCheatEngine(event) {
+  return new Promise((resolve) => {
+    const existing = findCheatEngine();
+    if (existing) { resolve({ ok: true, alreadyInstalled: true, cePath: existing.path }); return; }
+
+    const dir = cheatEngineDownloadDir();
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    const dest = path.join(dir, "CheatEngineInstaller.exe");
+    const send = (p) => { try { event.sender.send("fasttravel:download-progress", p); } catch (_) {} };
+
+    const get = (url, redirectsLeft) => {
+      https.get(url, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          return get(res.headers.location, redirectsLeft - 1);
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve({ ok: false, error: `http-${res.statusCode}` });
+          return;
+        }
+        const total = parseInt(res.headers["content-length"] || "0", 10);
+        let received = 0;
+        const out = fs.createWriteStream(dest);
+        res.on("data", (chunk) => {
+          received += chunk.length;
+          if (total) send({ received, total, pct: Math.round((received / total) * 100) });
+        });
+        res.pipe(out);
+        out.on("finish", () => out.close(() => {
+          send({ received: total || received, total: total || received, pct: 100 });
+          // Open the installer for the user to complete setup.
+          shell.openPath(dest).catch(() => {});
+          resolve({ ok: true, installer: dest });
+        }));
+        out.on("error", (err) => resolve({ ok: false, error: String(err.message || err) }));
+      }).on("error", (err) => resolve({ ok: false, error: String(err.message || err) }));
+    };
+    get(CE_DOWNLOAD_URL, 5);
   });
 }
 

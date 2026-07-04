@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="45">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>0</ID>
+      <Description>"Fast Travel Unlock - controlled from ACM (Tweaks tab or in-game overlay button)."</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>[ENABLE]
+// This mod runs from the table Lua script (auto-executes on open).
+[DISABLE]
+</AssemblerScript>
+    </CheatEntry>
+  </CheatEntries>
+  <LuaScript>--[[ Fast-Travel Unlock (auto-attach, state-file driven).
+  Runs automatically when this table opens -- no manual attach/execute.
+  ON/OFF is controlled from ACM (main window toggle or in-game overlay
+  button) by writing "1"/"0" to a small state file, which this script polls
+  every tick. That lets ACM flip the mod instantly without relaunching
+  Cheat Engine, and avoids any in-game hotkey conflicting with ACM's own
+  overlay hotkey.
+--]]
+
+local MODULE       = "CotWTheAngler_Steam.exe"
+local REGISTRY_RVA = 0x3357A18
+local HASH_OFF, FLAG_OFF, FLAG_BITS, CLEAR_MASK, ENTRY_STRIDE = 0x68, 0x110, 0x300, 0xFFFFFCFF, 0x118
+
+local TEMP_DIR      = os.getenv("TEMP") or os.getenv("TMP") or "C:\\Windows\\Temp"
+local STATE_FILE    = TEMP_DIR .. "\\acm_fasttravel_state.txt"
+local BASELINE_FILE = TEMP_DIR .. "\\acm_fasttravel_baseline.txt"
+
+local FT = {
+  [929725645]=true, [304694478]=true, [4073703691]=true, [2121825455]=true, [1198693335]=true, [544053394]=true, [2258883887]=true, [274183091]=true, [345118087]=true, [3028219461]=true,
+  [1708793834]=true, [4149738078]=true, [3492781488]=true, [4176987093]=true, [1389261028]=true, [2503665066]=true, [3593284207]=true, [3510088885]=true, [3371232216]=true, [2369486504]=true,
+  [831082776]=true, [638236004]=true, [3700212259]=true, [1888709695]=true, [3896440476]=true, [1659766327]=true, [3271616299]=true, [2375466602]=true, [1185816786]=true, [1516530191]=true,
+  [1434278169]=true, [2710845177]=true, [2069813594]=true, [2687417371]=true, [85502694]=true, [522151529]=true, [3267605164]=true, [870612369]=true, [2365463258]=true, [455242879]=true,
+  [1873697095]=true, [2356837991]=true, [488799225]=true, [3069006706]=true, [1634729595]=true, [3773917061]=true, [600535720]=true, [3506849011]=true, [1636506442]=true, [1987909393]=true,
+  [3091414457]=true, [3754361965]=true, [3757031455]=true, [3187583397]=true, [3454562482]=true, [2522004892]=true, [2819897919]=true, [273376337]=true, [2261793659]=true, [27621554]=true,
+  [1098008423]=true, [3841243196]=true, [3755042794]=true, [2100244166]=true, [4189553874]=true, [1410576332]=true, [1333372220]=true, [9949976]=true, [2845657371]=true, [3185740510]=true,
+  [3503058072]=true, [3402871878]=true, [2184580367]=true, [1166869464]=true, [1130702875]=true, [4042591143]=true, [1045677563]=true, [1197839236]=true, [901913841]=true, [744188740]=true,
+  [341943541]=true, [374763117]=true, [3220981454]=true, [2418646027]=true, [1648167166]=true, [356612490]=true, [1589311272]=true, [1277161377]=true, [1078458777]=true, [532447492]=true,
+  [239183175]=true, [2109551864]=true, [933554107]=true, [3011165854]=true, [7200682]=true, [2620373387]=true, [580562988]=true, [822144100]=true, [2639896924]=true, [3569324243]=true,
+  [1933262700]=true, [2231838463]=true, [932765694]=true, [3954266517]=true, [3249357958]=true, [4205817723]=true, [96967350]=true, [394140197]=true, [4025405701]=true, [2420209571]=true,
+  [2311815178]=true, [270361290]=true, [3233602902]=true, [2992064627]=true, [3123582329]=true, [3603435883]=true, [3440470893]=true, [593225863]=true, [1289166503]=true, [1135090335]=true,
+  [3346244118]=true, [450385915]=true, [284232930]=true, [621826867]=true, [3290399910]=true, [1269827182]=true, [3508441151]=true, [3371364464]=true, [1088137438]=true, [3165323038]=true,
+  [3060725678]=true, [3746492609]=true, [249408507]=true, [2535252625]=true, [4004115715]=true, [1234837600]=true, [2259775697]=true, [4232506464]=true, [2792058160]=true, [651322210]=true,
+  [1109089205]=true, [2833745471]=true, [307170379]=true, [2096818582]=true, [3680401115]=true, [156656797]=true, [1502324146]=true, [2664276861]=true, [1156433088]=true, [3368979863]=true,
+  [31218307]=true, [3694367199]=true, [3640340070]=true, [3485078160]=true, [303304859]=true, [822253019]=true, [2073669788]=true, [168650615]=true, [2133392705]=true, [1317408596]=true,
+  [2738119938]=true, [571266481]=true, [337943156]=true, [555360249]=true, [3852366795]=true, [1134625590]=true, [1421832211]=true, [3159632681]=true, [283374630]=true, [3791921980]=true,
+  [501500274]=true, [3580111107]=true, [1321573728]=true, [2305649510]=true, [3014295157]=true, [3556577703]=true
+}
+
+local baseline = {}
+local function loadBaseline()
+  baseline = {}
+  local f = io.open(BASELINE_FILE, "r"); if not f then return end
+  for line in f:lines() do local h,v = line:match("^(%d+)=(%d+)"); if h then baseline[tonumber(h)] = tonumber(v) end end
+  f:close()
+end
+local function saveBaseline()
+  local f = io.open(BASELINE_FILE, "w"); if not f then return end
+  for h,v in pairs(baseline) do f:write(h.."="..v.."\n") end
+  f:close()
+end
+
+-- Reads the shared state file. Missing file = OFF (safe default: do not
+-- reveal anything until ACM explicitly turns it on).
+local function readState()
+  local f = io.open(STATE_FILE, "r")
+  if not f then return false end
+  local c = f:read("*l"); f:close()
+  return c == "1"
+end
+
+local function attached()
+  local pid = getOpenedProcessID()
+  return pid ~= nil and pid ~= 0
+end
+local function ensureAttached()
+  if attached() then return true end
+  openProcess(MODULE)
+  return attached()
+end
+
+local function eachFT(cb)
+  local base = getAddress(MODULE); if not base or base == 0 then return false end
+  local mgr = readQword(base + REGISTRY_RVA); if not mgr or mgr == 0 then return false end
+  local vb, ve = readQword(mgr + 0x20), readQword(mgr + 0x28)
+  if vb and ve and ve &gt; vb then
+    for i = 0, (ve - vb)/8 - 1 do local p = readQword(vb + i*8)
+      if p and p ~= 0 then local h = readInteger(p + HASH_OFF); if h then h = h &amp; 0xFFFFFFFF; if FT[h] then cb(h,p) end end end
+    end
+  end
+  local ab, ac = readQword(mgr + 0x08), readQword(mgr + 0x10)
+  if ab and ac and ac &gt; 0 then
+    for i = 0, ac - 1 do local p = ab + i*ENTRY_STRIDE
+      local h = readInteger(p + HASH_OFF); if h then h = h &amp; 0xFFFFFFFF; if FT[h] then cb(h,p) end end
+    end
+  end
+  return true
+end
+
+local function capture()
+  local n = 0
+  eachFT(function(h,p) if baseline[h] == nil then local v = readInteger(p+FLAG_OFF) or 0
+    baseline[h] = ((v &amp; FLAG_BITS) == FLAG_BITS) and 1 or 0; n = n + 1 end end)
+  if n &gt; 0 then saveBaseline() end
+end
+local function applyUnlock()
+  capture()
+  eachFT(function(h,p) local v = readInteger(p+FLAG_OFF); if v then v = v &amp; 0xFFFFFFFF
+    if (v &amp; FLAG_BITS) ~= FLAG_BITS then writeInteger(p+FLAG_OFF, v | FLAG_BITS) end end end)
+end
+local function applyRevert()
+  capture()
+  eachFT(function(h,p) if baseline[h] == 0 then local v = readInteger(p+FLAG_OFF); if v then v = v &amp; 0xFFFFFFFF
+    if (v &amp; FLAG_BITS) ~= 0 then writeInteger(p+FLAG_OFF, v &amp; CLEAR_MASK) end end end end)
+end
+
+if FTU_timer then FTU_timer.destroy(); FTU_timer = nil end
+loadBaseline()
+FTU_timer = createTimer(nil)
+FTU_timer.Interval = 1000
+FTU_timer.OnTimer = function()
+  if not ensureAttached() then return end
+  if readState() then applyUnlock() else applyRevert() end
+end
+FTU_timer.Enabled = true
+print("[ACM FastTravel] loaded &amp; auto-attaching. Controlled from ACM (Tweaks tab or in-game overlay).")
+print("[ACM FastTravel] state file: " .. STATE_FILE)
+</LuaScript>
+</CheatTable>

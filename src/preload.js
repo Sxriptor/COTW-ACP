@@ -33,6 +33,14 @@ contextBridge.exposeInMainWorld("overlay", {
   toggle: () => ipcRenderer.invoke("overlay:toggle"),
 });
 
+contextBridge.exposeInMainWorld("fasttravel", {
+  status:      () => ipcRenderer.invoke("fasttravel:status"),
+  start:       () => ipcRenderer.invoke("fasttravel:start"),
+  stop:        () => ipcRenderer.invoke("fasttravel:stop"),
+  downloadCE:  () => ipcRenderer.invoke("fasttravel:download-ce"),
+  onDownloadProgress: (cb) => ipcRenderer.on("fasttravel:download-progress", (_, p) => cb(p)),
+});
+
 contextBridge.exposeInMainWorld("updater", {
   onAvailable:  (cb) => ipcRenderer.on("update:available",  (_, info) => cb(info)),
   onProgress:   (cb) => ipcRenderer.on("update:progress",   (_, p)    => cb(p)),

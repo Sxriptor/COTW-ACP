@@ -1008,3 +1008,51 @@ footer.error::before { background: var(--text-2); }
   font-size: 11px;
   font-weight: 700;
 }
+
+/* ---- Tweaks / Fast-Travel card ---- */
+.tweak-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-top: 6px;
+}
+.tweak-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tweak-title strong { display: block; font-size: 14px; color: var(--text); margin-bottom: 4px; }
+.tweak-title span   { display: block; font-size: 12px; color: var(--text-2); line-height: 1.5; max-width: 520px; }
+.tweak-status {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 11px;
+}
+.tweak-status.ok { color: #7fdc8f; border-color: #2c4a30; }
+.tweak-ce {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tweak-progress-wrap { display: flex; align-items: center; gap: 8px; width: 100%; }
+.tweak-progress { flex: 1; height: 6px; background: var(--panel-3); border-radius: 99px; overflow: hidden; }
+.tweak-progress-fill { height: 100%; width: 0%; background: var(--text); transition: width .2s; }
+.tweak-notes {
+  margin: 14px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+.tweak-notes strong { color: var(--text); }
+.hidden { display: none !important; }

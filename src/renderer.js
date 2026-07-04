@@ -31,6 +31,7 @@ const el = {
 wireEvents();
 refresh();
 initSettings();
+initFastTravel();
 
 function wireEvents() {
   // Launch
@@ -172,6 +173,7 @@ function switchView(name) {
   for (const view of document.querySelectorAll(".view")) {
     view.classList.toggle("active", view.id === `view-${name}`);
   }
+  if (name === "tweaks") refreshFastTravel();
 }
 
 async function refresh() {
@@ -448,3 +450,85 @@ function setStatus(text, isError = false) {
   el.status.textContent = text;
   el.status.classList.toggle("error", isError);
 }
+
+// ---- Fast-Travel Unlock (live Cheat Engine memory mod) ----
+const ftEl = {
+  toggle:       document.getElementById("fasttravel-toggle"),
+  status:       document.getElementById("fasttravel-status"),
+  ceMissing:    document.getElementById("fasttravel-ce-missing"),
+  downloadCE:   document.getElementById("fasttravel-download-ce"),
+  progressWrap: document.getElementById("fasttravel-ce-progress-wrap"),
+  progressFill: document.getElementById("fasttravel-ce-progress-fill"),
+  progressText: document.getElementById("fasttravel-ce-progress-text"),
+};
+
+function initFastTravel() {
+  if (!ftEl.toggle) return;
+
+  ftEl.toggle.addEventListener("change", async () => {
+    if (ftEl.toggle.checked) {
+      const res = await window.fasttravel.start();
+      if (!res || !res.ok) {
+        ftEl.toggle.checked = false;
+        setStatus(res && res.error === "ce-not-found"
+          ? "Cheat Engine not found — download it from the Tweaks page."
+          : "Couldn't start the tweak.", true);
+      } else {
+        setStatus("Fast-travel tweak started via Cheat Engine.");
+      }
+    } else {
+      await window.fasttravel.stop();
+      setStatus("Fast-travel tweak stopped.");
+    }
+    refreshFastTravel();
+  });
+
+  ftEl.downloadCE.addEventListener("click", async () => {
+    ftEl.downloadCE.disabled = true;
+    ftEl.progressWrap.classList.remove("hidden");
+    ftEl.progressFill.style.width = "0%";
+    ftEl.progressText.textContent = "0%";
+    const res = await window.fasttravel.downloadCE();
+    ftEl.downloadCE.disabled = false;
+    if (res && res.ok && res.alreadyInstalled) setStatus("Cheat Engine is already installed.");
+    else if (res && res.ok) setStatus("Cheat Engine installer downloaded — finish the install, then toggle on.");
+    else setStatus("Cheat Engine download failed: " + ((res && res.error) || "unknown"), true);
+    refreshFastTravel();
+  });
+
+  window.fasttravel.onDownloadProgress((p) => {
+    if (!p) return;
+    const pct = p.pct || 0;
+    ftEl.progressFill.style.width = pct + "%";
+    ftEl.progressText.textContent = pct + "%";
+  });
+
+  refreshFastTravel();
+}
+
+function ceSourceLabel(source) {
+  if (source === "user") return "your installed Cheat Engine";
+  if (source === "bundled") return "ACM's bundled Cheat Engine";
+  if (source === "downloaded") return "the Cheat Engine ACM downloaded";
+  return "Cheat Engine";
+}
+
+async function refreshFastTravel() {
+  if (!ftEl.toggle) return;
+  const s = await window.fasttravel.status();
+  ftEl.toggle.checked = !!(s && s.on);
+  ftEl.ceMissing.classList.toggle("hidden", !!(s && s.ceInstalled));
+  ftEl.toggle.disabled = !(s && s.ceInstalled);
+  const ceLabel = ceSourceLabel(s && s.ceSource);
+  if (!s || !s.ceInstalled) {
+    ftEl.status.textContent = "Cheat Engine not found — download it below to enable this.";
+  } else if (s.on) {
+    ftEl.status.textContent = `ON (using ${ceLabel}). Open the in-game map — every fast-travel point appears.`;
+  } else {
+    ftEl.status.textContent = `Ready (using ${ceLabel}). Toggle ON, then it auto-attaches whenever the game is running.`;
+  }
+  ftEl.status.classList.toggle("ok", !!(s && s.on));
+}
+
+// Keep the main window in sync if the overlay button toggled the mod.
+setInterval(() => { if (activeView === "tweaks") refreshFastTravel(); }, 2000);
