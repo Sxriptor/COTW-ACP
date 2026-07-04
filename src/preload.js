@@ -41,6 +41,13 @@ contextBridge.exposeInMainWorld("fasttravel", {
   onDownloadProgress: (cb) => ipcRenderer.on("fasttravel:download-progress", (_, p) => cb(p)),
 });
 
+contextBridge.exposeInMainWorld("getMods", {
+  fetchAvailable:  (forceRefresh) => ipcRenderer.invoke("mods:fetch-available", forceRefresh),
+  downloadAndImport: (mod) => ipcRenderer.invoke("mods:download-and-import", mod),
+  openReleasePage: (url) => ipcRenderer.invoke("mods:open-release-page", url),
+  onDownloadProgress: (cb) => ipcRenderer.on("mods:download-progress", (_, p) => cb(p)),
+});
+
 contextBridge.exposeInMainWorld("updater", {
   onAvailable:  (cb) => ipcRenderer.on("update:available",  (_, info) => cb(info)),
   onProgress:   (cb) => ipcRenderer.on("update:progress",   (_, p)    => cb(p)),

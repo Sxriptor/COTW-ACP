@@ -31,7 +31,6 @@ const el = {
 wireEvents();
 refresh();
 initSettings();
-initFastTravel();
 
 function wireEvents() {
   // Launch
@@ -173,7 +172,7 @@ function switchView(name) {
   for (const view of document.querySelectorAll(".view")) {
     view.classList.toggle("active", view.id === `view-${name}`);
   }
-  if (name === "tweaks") refreshFastTravel();
+  if (name === "get-mods") renderGetModsList(); // refresh "Already in My Mods" badges
 }
 
 async function refresh() {
@@ -451,61 +450,6 @@ function setStatus(text, isError = false) {
   el.status.classList.toggle("error", isError);
 }
 
-// ---- Fast-Travel Unlock (live Cheat Engine memory mod) ----
-const ftEl = {
-  toggle:       document.getElementById("fasttravel-toggle"),
-  status:       document.getElementById("fasttravel-status"),
-  ceMissing:    document.getElementById("fasttravel-ce-missing"),
-  downloadCE:   document.getElementById("fasttravel-download-ce"),
-  progressWrap: document.getElementById("fasttravel-ce-progress-wrap"),
-  progressFill: document.getElementById("fasttravel-ce-progress-fill"),
-  progressText: document.getElementById("fasttravel-ce-progress-text"),
-};
-
-function initFastTravel() {
-  if (!ftEl.toggle) return;
-
-  ftEl.toggle.addEventListener("change", async () => {
-    if (ftEl.toggle.checked) {
-      const res = await window.fasttravel.start();
-      if (!res || !res.ok) {
-        ftEl.toggle.checked = false;
-        setStatus(res && res.error === "ce-not-found"
-          ? "Cheat Engine not found — download it from the Tweaks page."
-          : "Couldn't start the tweak.", true);
-      } else {
-        setStatus("Fast-travel tweak started via Cheat Engine.");
-      }
-    } else {
-      await window.fasttravel.stop();
-      setStatus("Fast-travel tweak stopped.");
-    }
-    refreshFastTravel();
-  });
-
-  ftEl.downloadCE.addEventListener("click", async () => {
-    ftEl.downloadCE.disabled = true;
-    ftEl.progressWrap.classList.remove("hidden");
-    ftEl.progressFill.style.width = "0%";
-    ftEl.progressText.textContent = "0%";
-    const res = await window.fasttravel.downloadCE();
-    ftEl.downloadCE.disabled = false;
-    if (res && res.ok && res.alreadyInstalled) setStatus("Cheat Engine is already installed.");
-    else if (res && res.ok) setStatus("Cheat Engine installer downloaded — finish the install, then toggle on.");
-    else setStatus("Cheat Engine download failed: " + ((res && res.error) || "unknown"), true);
-    refreshFastTravel();
-  });
-
-  window.fasttravel.onDownloadProgress((p) => {
-    if (!p) return;
-    const pct = p.pct || 0;
-    ftEl.progressFill.style.width = pct + "%";
-    ftEl.progressText.textContent = pct + "%";
-  });
-
-  refreshFastTravel();
-}
-
 function ceSourceLabel(source) {
   if (source === "user") return "your installed Cheat Engine";
   if (source === "bundled") return "ACM's bundled Cheat Engine";
@@ -513,22 +457,195 @@ function ceSourceLabel(source) {
   return "Cheat Engine";
 }
 
-async function refreshFastTravel() {
-  if (!ftEl.toggle) return;
-  const s = await window.fasttravel.status();
-  ftEl.toggle.checked = !!(s && s.on);
-  ftEl.ceMissing.classList.toggle("hidden", !!(s && s.ceInstalled));
-  ftEl.toggle.disabled = !(s && s.ceInstalled);
-  const ceLabel = ceSourceLabel(s && s.ceSource);
-  if (!s || !s.ceInstalled) {
-    ftEl.status.textContent = "Cheat Engine not found — download it below to enable this.";
-  } else if (s.on) {
-    ftEl.status.textContent = `ON (using ${ceLabel}). Open the in-game map — every fast-travel point appears.`;
-  } else {
-    ftEl.status.textContent = `Ready (using ${ceLabel}). Toggle ON, then it auto-attaches whenever the game is running.`;
-  }
-  ftEl.status.classList.toggle("ok", !!(s && s.on));
+// ---- Get Mods (fetches releases from GitHub, one-click import) ----
+const gm = {
+  status: document.getElementById("get-mods-status"),
+  list:   document.getElementById("get-mods-list"),
+  refreshBtn: document.getElementById("get-mods-refresh"),
+};
+
+let getModsCache = [];
+let downloadingTag = null;
+
+function initGetMods() {
+  if (!gm.list) return;
+  gm.refreshBtn.addEventListener("click", () => loadGetMods(true));
+
+  window.getMods.onDownloadProgress((p) => {
+    if (!p || !downloadingTag) return;
+    const card = gm.list.querySelector(`[data-tag="${cssEscape(downloadingTag)}"]`);
+    if (!card) return;
+    const fill = card.querySelector(".getmods-progress-fill");
+    const text = card.querySelector(".getmods-progress-text");
+    if (fill) fill.style.width = (p.pct || 0) + "%";
+    if (text) text.textContent = (p.pct || 0) + "%";
+  });
+
+  loadGetMods(false);
 }
 
-// Keep the main window in sync if the overlay button toggled the mod.
-setInterval(() => { if (activeView === "tweaks") refreshFastTravel(); }, 2000);
+function cssEscape(s) {
+  return window.CSS && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&");
+}
+
+async function loadGetMods(forceRefresh) {
+  gm.status.textContent = "Loading…";
+  const res = await window.getMods.fetchAvailable(!!forceRefresh);
+  if (!res || !res.ok) {
+    gm.status.textContent = "Couldn't load mods: " + ((res && res.error) || "unknown error");
+    gm.list.innerHTML = "";
+    return;
+  }
+  getModsCache = res.mods || [];
+  gm.status.textContent = getModsCache.length
+    ? `${getModsCache.length} mod${getModsCache.length === 1 ? "" : "s"} available.`
+    : "No mods published yet.";
+  renderGetModsList();
+}
+
+function importedVersionFor(modName) {
+  if (!currentState) return null;
+  const match = currentState.mods.find(
+    (m) => (m.baseName || m.name || "").toLowerCase() === modName.toLowerCase()
+  );
+  return match ? match.version : null;
+}
+
+// ---- tiny, safe markdown-lite renderer for release-note excerpts ----
+// Escapes HTML first, then applies a small readable subset (bold, italic,
+// headings-as-bold, bullet lines, paragraphs) — plenty for a short excerpt.
+function escapeHtml(s) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function excerptReadme(body, maxLen = 260) {
+  if (!body) return "";
+  let text = body.replace(/^#{1,6}\s.*\r?\n+/, "").trim(); // drop a leading heading (redundant with card title)
+  if (text.length > maxLen) {
+    text = text.slice(0, maxLen).replace(/\s+\S*$/, "") + "…";
+  }
+  return text;
+}
+
+function markdownLiteToHtml(md) {
+  let html = escapeHtml(md);
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  html = html.replace(/^#{1,6}\s+(.+)$/gm, "<strong>$1</strong>");
+  html = html.replace(/^[-*]\s+(.+)$/gm, "• $1");
+  html = html
+    .split(/\r?\n\r?\n+/)
+    .map((p) => `<p>${p.replace(/\r?\n/g, "<br>")}</p>`)
+    .join("");
+  return html;
+}
+
+function renderGetModsList() {
+  gm.list.innerHTML = "";
+  for (const mod of getModsCache) {
+    const card = document.createElement("div");
+    card.className = "getmods-card";
+    card.dataset.tag = mod.tag;
+
+    const head = document.createElement("div");
+    head.className = "getmods-card-head";
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = mod.modName;
+    const versionEl = document.createElement("span");
+    versionEl.className = "getmods-version";
+    versionEl.textContent = `v${mod.version}`;
+    head.append(nameEl, versionEl);
+
+    const meta = document.createElement("div");
+    meta.className = "getmods-card-meta";
+    const sizeStr = mod.size
+      ? (mod.size >= 1024 * 1024 ? (mod.size / (1024 * 1024)).toFixed(1) + " MB" : Math.max(1, Math.round(mod.size / 1024)) + " KB")
+      : "";
+    const dateStr = mod.publishedAt ? new Date(mod.publishedAt).toLocaleDateString() : "";
+    meta.textContent = [dateStr, sizeStr].filter(Boolean).join(" · ");
+
+    card.append(head, meta);
+
+    if (mod.official) {
+      const officialBadge = document.createElement("div");
+      officialBadge.className = "getmods-official";
+      officialBadge.title = "Officially created and tested by the creator of ACM";
+      officialBadge.textContent = "★ Official — created & tested by ACM's creator";
+      card.append(officialBadge);
+    }
+
+    const excerpt = excerptReadme(mod.body);
+    if (excerpt) {
+      const readme = document.createElement("div");
+      readme.className = "getmods-readme";
+      readme.innerHTML = markdownLiteToHtml(excerpt);
+      card.append(readme);
+    }
+
+    const already = importedVersionFor(mod.modName);
+    if (already) {
+      const badge = document.createElement("div");
+      badge.className = "getmods-imported";
+      badge.textContent = "Already in My Mods";
+      card.append(badge);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "getmods-actions";
+
+    const btn = document.createElement("button");
+    btn.className = "getmods-download primary";
+    btn.textContent = already ? "Download Again" : "Download & Add";
+
+    const githubBtn = document.createElement("button");
+    githubBtn.className = "getmods-github";
+    githubBtn.textContent = "View on GitHub";
+    githubBtn.addEventListener("click", () => {
+      if (mod.htmlUrl) window.getMods.openReleasePage(mod.htmlUrl);
+    });
+
+    actions.append(btn, githubBtn);
+    card.append(actions);
+
+    const progressWrap = document.createElement("div");
+    progressWrap.className = "getmods-progress-wrap hidden";
+    const progress = document.createElement("div");
+    progress.className = "getmods-progress";
+    const progressFill = document.createElement("div");
+    progressFill.className = "getmods-progress-fill";
+    progress.append(progressFill);
+    const progressText = document.createElement("span");
+    progressText.className = "getmods-progress-text";
+    progressText.textContent = "0%";
+    progressWrap.append(progress, progressText);
+    card.append(progressWrap);
+
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      progressWrap.classList.remove("hidden");
+      progressFill.style.width = "0%";
+      progressText.textContent = "0%";
+      downloadingTag = mod.tag;
+      const res = await window.getMods.downloadAndImport({ zipUrl: mod.zipUrl, zipName: mod.zipName, modName: mod.modName });
+      downloadingTag = null;
+      progressWrap.classList.add("hidden");
+      btn.disabled = false;
+      if (res && res.ok) {
+        setStatus(`${mod.modName} added to My Mods.`);
+        await refresh();
+        renderGetModsList();
+      } else {
+        setStatus(`Couldn't download ${mod.modName}: ` + ((res && res.error) || "unknown error"), true);
+      }
+    });
+
+    gm.list.appendChild(card);
+  }
+}
+
+initGetMods();

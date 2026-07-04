@@ -39,10 +39,6 @@
         "to": "splash.mp4"
       },
       {
-        "from": "resources/fasttravel_unlock.CT",
-        "to": "fasttravel_unlock.CT"
-      },
-      {
         "from": "resources/cheatengine",
         "to": "cheatengine"
       }

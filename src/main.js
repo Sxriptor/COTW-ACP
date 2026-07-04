@@ -143,6 +143,10 @@ function createWindow() {
     },
   });
 
+  mainWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {
+    console.log(`[renderer console] ${message} (${sourceId}:${line})`);
+  });
+
   mainWindow.webContents.once("did-finish-load", () => {
     revealMainWindowAfterSplash();
   });
@@ -467,12 +471,22 @@ function registerIpc() {
       }
       saveState();
     }
+
+    // Cheat Engine mods aren't game-file mods — toggling them starts/stops
+    // the live memory tweak instead of copying anything into the game folder.
+    const mod = state.mods.find((m) => m.id === payload.id);
+    if (mod && mod.kind === "cheatengine") {
+      if (payload.enabled) startFastTravel(mod);
+      else stopFastTravel();
+    }
+
     return publicState();
   });
 
   ipcMain.handle("mods:remove", (_event, id) => {
     const mod = state.mods.find((item) => item.id === id);
     if (mod) {
+      if (mod.kind === "cheatengine") stopFastTravel();
       state.mods = state.mods.filter((item) => item.id !== id);
       for (const profile of state.profiles) {
         profile.enabledMods = profile.enabledMods.filter((eid) => eid !== id);
@@ -540,9 +554,25 @@ function registerIpc() {
 
   // ---- Fast-Travel Unlock (Cheat Engine memory mod) ----
   ipcMain.handle("fasttravel:status", () => fasttravelStatus());
-  ipcMain.handle("fasttravel:start", () => startFastTravel());
-  ipcMain.handle("fasttravel:stop", () => stopFastTravel());
+  ipcMain.handle("fasttravel:start", () => setFastTravelEnabled(true));
+  ipcMain.handle("fasttravel:stop", () => setFastTravelEnabled(false));
   ipcMain.handle("fasttravel:download-ce", (event) => downloadCheatEngine(event));
+
+  // ---- Get Mods (fetch + one-click import from GitHub releases) ----
+  ipcMain.handle("mods:fetch-available", (_event, forceRefresh) => fetchAvailableMods(!!forceRefresh));
+  ipcMain.handle("mods:download-and-import", (event, payload) => downloadAndImportMod(event, payload));
+  ipcMain.handle("mods:open-release-page", (_event, url) => {
+    // Only ever open GitHub release pages we ourselves fetched — never an
+    // arbitrary renderer-supplied URL.
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" && parsed.hostname === "github.com") {
+        shell.openExternal(url);
+        return { ok: true };
+      }
+    } catch (_) {}
+    return { ok: false, error: "invalid-url" };
+  });
 }
 
 // ============================ Fast-Travel Unlock ============================
@@ -615,36 +645,51 @@ function findCheatEngine() {
   return null;
 }
 
-function fasttravelTablePath() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "fasttravel_unlock.CT")
-    : path.join(app.getAppPath(), "resources", "fasttravel_unlock.CT");
+// The Fast-Travel Unlock mod is an ordinary drag-and-drop / Get Mods import
+// like any other (see acm-mod.json in its zip) — this just finds it in the
+// library so ACM knows which .CT file to hand to Cheat Engine.
+function findCheatEngineMod() {
+  return state.mods.find((m) => m.kind === "cheatengine") || null;
+}
+
+function isModEnabled(mod) {
+  const profile = getActiveProfile();
+  return !!(profile && mod && profile.enabledMods.includes(mod.id));
+}
+
+function cheatEngineModTablePath(mod) {
+  return path.join(modPath(mod), mod.ctFile);
 }
 
 function fasttravelStatus() {
   const ceRunning = isCheatEngineRunning();
   const found = findCheatEngine();
+  const mod = findCheatEngineMod();
   return {
     ceInstalled: !!found,
     cePath: found ? found.path : "",
     ceSource: found ? found.source : null, // "user" | "bundled" | "downloaded"
     ceRunning,
-    tablePresent: fs.existsSync(fasttravelTablePath()),
+    modPresent: !!mod,
+    modName: mod ? (mod.baseName || mod.name) : null,
     // "on" = the mod is actively revealing waypoints right now.
-    on: ceRunning && readFasttravelState(),
+    on: !!mod && ceRunning && readFasttravelState(),
   };
 }
 
-// Turns the mod ON. Launches Cheat Engine with the table the first time
-// (auto-attaches, auto-runs); after that, just flips the shared flag so the
-// already-running script picks it up within ~1s.
-function startFastTravel() {
+// Turns the mod ON. Launches Cheat Engine with the mod's own table the first
+// time (auto-attaches, auto-runs); after that, just flips the shared flag so
+// the already-running script picks it up within ~1s.
+function startFastTravel(mod) {
+  const target = mod || findCheatEngineMod();
+  if (!target) return { ok: false, error: "mod-not-imported" };
+
   writeFasttravelState(true);
   if (isCheatEngineRunning()) return { ok: true, on: true, launched: false };
 
   const found = findCheatEngine();
   if (!found) return { ok: false, error: "ce-not-found" };
-  const table = fasttravelTablePath();
+  const table = cheatEngineModTablePath(target);
   if (!fs.existsSync(table)) return { ok: false, error: "table-missing" };
   try {
     ceProcess = spawn(found.path, [table], { detached: true, stdio: "ignore" });
@@ -664,6 +709,20 @@ function startFastTravel() {
 function stopFastTravel() {
   writeFasttravelState(false);
   return { ok: true, on: false };
+}
+
+// Shared by the overlay button and the My Mods toggle so both stay in sync:
+// flips the mod's enabled state in the active profile AND starts/stops CE.
+function setFastTravelEnabled(enabled) {
+  const mod = findCheatEngineMod();
+  if (!mod) return { ok: false, error: "mod-not-imported" };
+  const profile = getActiveProfile();
+  if (profile) {
+    if (enabled) { if (!profile.enabledMods.includes(mod.id)) profile.enabledMods.push(mod.id); }
+    else { profile.enabledMods = profile.enabledMods.filter((id) => id !== mod.id); }
+    saveState();
+  }
+  return enabled ? startFastTravel(mod) : stopFastTravel();
 }
 
 // Download the official Cheat Engine installer into ACM's data dir, then open
@@ -711,6 +770,156 @@ function downloadCheatEngine(event) {
   });
 }
 
+// ============================ Get Mods (GitHub releases) ============================
+// All mods (and ACM's own app updates) are published to the same GitHub repo
+// as releases tagged "<ModName>-v<version>" (e.g. "CrystalWater-v1.0"). We
+// list one card per mod — whichever tagged version is highest — and let the
+// user import it with one click via the exact same importZip() path used
+// for manual drag-and-drop.
+
+const MODS_REPO_OWNER = "Sxriptor";
+const MODS_REPO_NAME = "COTW-ACP";
+const MOD_TAG_RE = /^(.+)-v([0-9]+(?:\.[0-9]+)*)$/i;
+
+// Mods (by lowercased name) built and tested by ACM's own creator. Shown
+// with an "Official" badge in Get Mods.
+const OFFICIAL_MODS = new Set(["crystalwater", "sunglasses"]);
+const RELEASES_CACHE_MS = 5 * 60 * 1000;
+
+let releasesCache = { at: 0, data: null };
+
+function compareVersions(a, b) {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function httpsGetJson(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { "User-Agent": "ACM-Angler-Content-Manager" } }, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        return resolve(httpsGetJson(res.headers.location));
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`http-${res.statusCode}`));
+        return;
+      }
+      let body = "";
+      res.on("data", (chunk) => { body += chunk; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(body)); } catch (err) { reject(err); }
+      });
+    }).on("error", reject);
+  });
+}
+
+// Fetches releases, keeps only "<ModName>-v<version>" tags (excluding ACM's
+// own app releases), and returns the highest version per mod name.
+async function fetchAvailableMods(forceRefresh) {
+  if (!forceRefresh && releasesCache.data && Date.now() - releasesCache.at < RELEASES_CACHE_MS) {
+    return { ok: true, mods: releasesCache.data, cached: true };
+  }
+  let releases;
+  try {
+    releases = await httpsGetJson(`https://api.github.com/repos/${MODS_REPO_OWNER}/${MODS_REPO_NAME}/releases`);
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+  if (!Array.isArray(releases)) return { ok: false, error: "unexpected-response" };
+
+  const latestByMod = new Map();
+  for (const r of releases) {
+    const match = String(r.tag_name || "").match(MOD_TAG_RE);
+    if (!match) continue;
+    const modName = match[1];
+    if (modName.toLowerCase() === "acm") continue; // ACM's own app releases, not a mod
+    const version = match[2];
+    const zipAsset = (r.assets || []).find((a) => a.name.toLowerCase().endsWith(".zip"));
+    if (!zipAsset) continue;
+
+    const key = modName.toLowerCase();
+    const existing = latestByMod.get(key);
+    if (!existing || compareVersions(version, existing.version) > 0) {
+      latestByMod.set(key, {
+        modName,
+        version,
+        tag: r.tag_name,
+        zipUrl: zipAsset.browser_download_url,
+        zipName: zipAsset.name,
+        size: zipAsset.size || 0,
+        publishedAt: r.published_at || null,
+        htmlUrl: r.html_url || null,
+        body: r.body || "",
+        official: OFFICIAL_MODS.has(key),
+      });
+    }
+  }
+
+  const mods = [...latestByMod.values()].sort((a, b) => a.modName.localeCompare(b.modName));
+  releasesCache = { at: Date.now(), data: mods };
+  return { ok: true, mods, cached: false };
+}
+
+// Downloads a mod's zip asset and feeds it through the same importZip() path
+// used for manual drag-and-drop, so it shows up in My Mods identically. The
+// mod is named after the release's mod name (not the temp file it's saved
+// to), so it matches its Get Mods card exactly.
+function downloadAndImportMod(event, { zipUrl, zipName, modName }) {
+  return new Promise((resolve) => {
+    const tempDir = path.join(os.tmpdir(), `acm-getmods-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+    const dest = path.join(tempDir, zipName || "mod.zip");
+    const send = (p) => { try { event.sender.send("mods:download-progress", p); } catch (_) {} };
+
+    const get = (url, redirectsLeft) => {
+      https.get(url, { headers: { "User-Agent": "ACM-Angler-Content-Manager" } }, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          return get(res.headers.location, redirectsLeft - 1);
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve({ ok: false, error: `http-${res.statusCode}` });
+          return;
+        }
+        const total = parseInt(res.headers["content-length"] || "0", 10);
+        let received = 0;
+        const out = fs.createWriteStream(dest);
+        res.on("data", (chunk) => {
+          received += chunk.length;
+          if (total) send({ received, total, pct: Math.round((received / total) * 100), zipName });
+        });
+        res.pipe(out);
+        out.on("finish", () => out.close(() => {
+          send({ received: total || received, total: total || received, pct: 100, zipName });
+          try {
+            importZip(dest, modName);
+            saveState();
+            autoApplyIfReady();
+            resolve({ ok: true });
+          } catch (err) {
+            resolve({ ok: false, error: String((err && err.message) || err) });
+          } finally {
+            fs.rm(tempDir, { recursive: true, force: true }, () => {});
+          }
+        }));
+        out.on("error", (err) => {
+          fs.rm(tempDir, { recursive: true, force: true }, () => {});
+          resolve({ ok: false, error: String(err.message || err) });
+        });
+      }).on("error", (err) => resolve({ ok: false, error: String(err.message || err) }));
+    };
+    get(zipUrl, 5);
+  });
+}
+
 function publicState() {
   const activeProfile = getActiveProfile();
   const enabledSet = new Set(activeProfile ? activeProfile.enabledMods : []);
@@ -749,9 +958,37 @@ function importPaths(paths) {
   }
 }
 
+// Special mods (currently just "cheatengine") carry an acm-mod.json manifest
+// at their payload root instead of game VFS files. Detected so ACM knows not
+// to copy their contents into the game's mods folder, and to drive them via
+// Cheat Engine start/stop instead of a plain file toggle.
+function readAcmModManifest(payloadRoot) {
+  const manifestPath = path.join(payloadRoot, "acm-mod.json");
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    if (data && data.type === "cheatengine" && data.table) {
+      return { kind: "cheatengine", ctFile: data.table, displayName: data.displayName || null };
+    }
+  } catch (_) {}
+  return null;
+}
+
+function applyAcmManifest(mod, payloadRoot) {
+  const manifest = readAcmModManifest(payloadRoot);
+  if (!manifest) return;
+  mod.kind = manifest.kind;
+  mod.ctFile = manifest.ctFile;
+  if (manifest.displayName) {
+    mod.name = manifest.displayName;
+    mod.baseName = manifest.displayName;
+  }
+}
+
 function importDirectory(sourcePath) {
   const payloadRoot = findPayloadRoot(sourcePath);
   const mod = createMod(path.basename(stripTrailingSlash(sourcePath)));
+  applyAcmManifest(mod, payloadRoot);
   fs.mkdirSync(modPath(mod), { recursive: true });
   copyDirectory(payloadRoot, modPath(mod));
   mod.fileCount = countFiles(modPath(mod));
@@ -760,19 +997,24 @@ function importDirectory(sourcePath) {
   if (profile) profile.enabledMods.push(mod.id);
 }
 
-function importZip(zipPath) {
+// displayNameOverride lets callers (e.g. Get Mods) name the mod after the
+// release/mod name instead of whatever the downloaded zip file happens to be
+// called on disk.
+function importZip(zipPath, displayNameOverride) {
   const temp = path.join(os.tmpdir(), `angler-mod-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   fs.mkdirSync(temp, { recursive: true });
   try {
     new AdmZip(zipPath).extractAllTo(temp, true);
     const payloadRoot = findPayloadRoot(temp);
-    const mod = createMod(path.basename(zipPath, path.extname(zipPath)));
+    const mod = createMod(displayNameOverride || path.basename(zipPath, path.extname(zipPath)));
+    applyAcmManifest(mod, payloadRoot);
     fs.mkdirSync(modPath(mod), { recursive: true });
     copyDirectory(payloadRoot, modPath(mod));
     mod.fileCount = countFiles(modPath(mod));
     state.mods.push(mod);
     const profile = getActiveProfile();
     if (profile) profile.enabledMods.push(mod.id);
+    return mod;
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -813,7 +1055,7 @@ function applyEnabledMods() {
   const activeProfile = getActiveProfile();
   const enabledSet = new Set(activeProfile ? activeProfile.enabledMods : []);
   const installed = [];
-  for (const mod of state.mods.filter((item) => enabledSet.has(item.id))) {
+  for (const mod of state.mods.filter((item) => enabledSet.has(item.id) && item.kind !== "cheatengine")) {
     const root = modPath(mod);
     if (!fs.existsSync(root)) continue;
     for (const file of walkFiles(root)) {

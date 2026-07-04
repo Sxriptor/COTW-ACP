@@ -9,13 +9,16 @@ let busy = false;
 function render(s) {
   const on = !!(s && s.on);
   const ceInstalled = !!(s && s.ceInstalled);
+  const modPresent = !!(s && s.modPresent);
 
-  btn.disabled = !ceInstalled || busy;
+  btn.disabled = !ceInstalled || !modPresent || busy;
   btn.classList.toggle("on", on);
   btn.textContent = on ? "Restore My Unlocks" : "Unlock All Fast Travel";
 
-  if (!ceInstalled) {
-    statusEl.textContent = "Cheat Engine not found — install it from ACM's Tweaks tab.";
+  if (!modPresent) {
+    statusEl.textContent = "Import \"Unlock All Fast Travel\" from Get Mods first.";
+  } else if (!ceInstalled) {
+    statusEl.textContent = "Cheat Engine not found — install it and try again.";
   } else if (on) {
     statusEl.textContent = "All fast-travel points shown. Click to restore your real unlocks.";
   } else {
