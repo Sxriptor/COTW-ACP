@@ -34,7 +34,18 @@
 
         <nav class="sidebar" id="sidebar">
           <div class="nav-top">
-            <button class="nav-item active" data-view="mods">
+            <button class="nav-item active" data-view="config">
+              <svg class="nav-icon" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+                <line x1="1.5" y1="4"    x2="13.5" y2="4"/>
+                <line x1="1.5" y1="7.75" x2="13.5" y2="7.75"/>
+                <line x1="1.5" y1="11.5" x2="13.5" y2="11.5"/>
+                <rect x="3.5"  y="2.5"  width="3" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+                <rect x="8.5"  y="6.25" width="3" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+                <rect x="4.5"  y="10"   width="3" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+              </svg>
+              <span class="nav-label">Config</span>
+            </button>
+            <button class="nav-item" data-view="mods">
               <svg class="nav-icon" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                 <line x1="3" y1="4"   x2="12" y2="4"/>
                 <line x1="3" y1="7.5" x2="12" y2="7.5"/>
@@ -85,8 +96,19 @@
 
         <main class="main-content">
 
+          <!-- Config -->
+          <div id="view-config" class="view active">
+            <div class="config-content">
+              <div class="config-header">
+                <div class="config-header-title">Mod Configuration</div>
+                <div class="config-header-sub">Configure and toggle individual Lua script mods. Values are written live — active mods pick them up within a second.</div>
+              </div>
+              <div class="config-grid" id="config-grid"></div>
+            </div>
+          </div>
+
           <!-- My Mods -->
-          <div id="view-mods" class="view active">
+          <div id="view-mods" class="view">
             <section id="drop-zone" class="drop-zone">
               <div class="drop-left">
                 <img class="drop-icon" src="../public/logo.png" alt="" />
@@ -121,6 +143,11 @@
                   </div>
                   <pre id="details"></pre>
                 </aside>
+                <div id="mac-ce-banner" class="mac-ce-banner hidden">
+                  <div id="mac-ce-status" class="mac-ce-status"></div>
+                  <button id="mac-ce-install-btn" class="primary mac-ce-install-btn hidden">Install Cheat Engine</button>
+                  <div id="mac-ce-progress" class="mac-ce-progress hidden"></div>
+                </div>
                 <button id="launch-btn" class="primary launch-btn">Launch</button>
               </div>
             </div>

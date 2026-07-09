@@ -1,6 +1,6 @@
 let currentState = null;
 let selectedModId = null;
-let activeView = "mods";
+let activeView = "config";
 let sortAlpha = false;
 let recentlyAdded = new Set();
 let knownModIds = null; // null = first load, Set after
@@ -31,6 +31,8 @@ const el = {
 wireEvents();
 refresh();
 initSettings();
+initConfigPage();
+initMacCeBanner();
 
 function wireEvents() {
   // Launch
@@ -172,7 +174,8 @@ function switchView(name) {
   for (const view of document.querySelectorAll(".view")) {
     view.classList.toggle("active", view.id === `view-${name}`);
   }
-  if (name === "get-mods") renderGetModsList(); // refresh "Already in My Mods" badges
+  if (name === "get-mods") renderGetModsList();
+  if (name === "config") initConfigPage();
 }
 
 async function refresh() {
@@ -718,4 +721,225 @@ function renderGetModsList() {
   renderModSection(gm.nexus, []); // Nexus integration not built yet
 }
 
+// ---- Config Page ----
+
+const CONFIG_MODS = [
+  {
+    id: "money",
+    label: "Increase Money",
+    desc: "Set the amount of money to inject.",
+    stepper: { key: "value", min: 0, max: 9999999, step: 1000 },
+  },
+  {
+    id: "xp",
+    label: "Increase XP",
+    desc: "Set the amount of XP to inject.",
+    stepper: { key: "value", min: 0, max: 9999999, step: 100 },
+  },
+  {
+    id: "rodholder_boat",
+    label: "Rod Holder — Boat",
+    desc: "Enables the boat rod holder mod.",
+  },
+  {
+    id: "unlimited_rodholder",
+    label: "Unlimited Rod Holder",
+    desc: "Removes all rod holder slot limits entirely.",
+  },
+];
+
+let configState = {};
+
+async function initConfigPage() {
+  try {
+    configState = (await window.modConfig.get()) || {};
+  } catch (_) {
+    configState = {};
+  }
+  renderConfigPage();
+}
+
+function renderConfigPage() {
+  const grid = document.getElementById("config-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  for (const def of CONFIG_MODS) {
+    grid.appendChild(buildConfigCard(def, configState[def.id] || {}));
+  }
+}
+
+function buildConfigCard(def, values) {
+  const card = document.createElement("div");
+
+  if (def.stepper) {
+    // ── Stepper card (money / xp) — no toggle, just −/input/+ ──
+    card.className = "config-card config-card-stepper";
+
+    const header = document.createElement("div");
+    header.className = "config-card-header";
+    const info = document.createElement("div");
+    info.className = "config-card-info";
+    const titleEl = document.createElement("div");
+    titleEl.className = "config-card-title";
+    titleEl.textContent = def.label;
+    const descEl = document.createElement("div");
+    descEl.className = "config-card-desc";
+    descEl.textContent = def.desc;
+    info.append(titleEl, descEl);
+    header.append(info);
+    card.append(header);
+
+    const controls = document.createElement("div");
+    controls.className = "config-card-controls";
+
+    const { key, min, max, step } = def.stepper;
+    let currentVal = values[key] ?? min;
+
+    const row = document.createElement("div");
+    row.className = "config-stepper-row";
+
+    const minusBtn = document.createElement("button");
+    minusBtn.className = "config-step-btn";
+    minusBtn.textContent = "−";
+
+    const numInput = document.createElement("input");
+    numInput.type = "number";
+    numInput.className = "config-stepper-input";
+    numInput.min = min;
+    numInput.max = max;
+    numInput.step = step;
+    numInput.value = currentVal;
+
+    const plusBtn = document.createElement("button");
+    plusBtn.className = "config-step-btn";
+    plusBtn.textContent = "+";
+
+    const save = async (val) => {
+      val = Math.max(min, Math.min(max, val));
+      numInput.value = val;
+      currentVal = val;
+      const res = await window.modConfig.set(def.id, { [key]: val });
+      if (res && res.configs) configState = res.configs;
+    };
+
+    minusBtn.addEventListener("click", () => save(currentVal - step));
+    plusBtn.addEventListener("click",  () => save(currentVal + step));
+    numInput.addEventListener("change", () => save(Number(numInput.value) || min));
+
+    row.append(minusBtn, numInput, plusBtn);
+    controls.append(row);
+    card.append(controls);
+  } else {
+    // ── Toggle card (rod holders) ──
+    const enabled = !!values.enabled;
+    card.className = `config-card${enabled ? " active" : ""}`;
+
+    const header = document.createElement("div");
+    header.className = "config-card-header";
+
+    const info = document.createElement("div");
+    info.className = "config-card-info";
+    const titleEl = document.createElement("div");
+    titleEl.className = "config-card-title";
+    titleEl.textContent = def.label;
+    const descEl = document.createElement("div");
+    descEl.className = "config-card-desc";
+    descEl.textContent = def.desc;
+    info.append(titleEl, descEl);
+
+    const toggleLabel = document.createElement("label");
+    toggleLabel.className = "toggle";
+    const toggleInput = document.createElement("input");
+    toggleInput.type = "checkbox";
+    toggleInput.checked = enabled;
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    toggleLabel.append(toggleInput, track);
+
+    toggleInput.addEventListener("change", async () => {
+      const res = await window.modConfig.set(def.id, { enabled: toggleInput.checked });
+      if (res && res.configs) configState = res.configs;
+      card.classList.toggle("active", toggleInput.checked);
+    });
+
+    header.append(info, toggleLabel);
+    card.append(header);
+  }
+
+  return card;
+}
+
 initGetMods();
+
+// ── Mac: Cheat Engine in CrossOver banner ────────────────────────────────────
+// Shown only on Mac when a cheatengine-type mod is in the library.
+// Guides the user through installing CE into their CrossOver bottle.
+function initMacCeBanner() {
+  const banner      = document.getElementById("mac-ce-banner");
+  const statusEl    = document.getElementById("mac-ce-status");
+  const installBtn  = document.getElementById("mac-ce-install-btn");
+  const progressEl  = document.getElementById("mac-ce-progress");
+  if (!banner) return;
+
+  let installing = false;
+
+  async function refreshCeBanner() {
+    if (installing) return;
+    let st;
+    try { st = await window.fasttravel.status(); } catch (_) { return; }
+
+    // macCrossoverFound being a defined (non-undefined) field means we're on Mac.
+    if (st.macCrossoverFound === undefined) { banner.classList.add("hidden"); return; }
+
+    // Hide banner if no cheatengine mods are in the library.
+    const hasCeMod = st.modPresent;
+    if (!hasCeMod) { banner.classList.add("hidden"); return; }
+
+    banner.classList.remove("hidden");
+    installBtn.classList.add("hidden");
+
+    if (!st.macCrossoverFound) {
+      statusEl.textContent = "CrossOver not found. Install CrossOver to use memory mods.";
+    } else if (!st.macBottleFound) {
+      statusEl.textContent = "Game folder not set. Set it to the game inside your CrossOver bottle.";
+    } else if (!st.macCeInBottle) {
+      statusEl.textContent = "Cheat Engine is not installed in your CrossOver bottle.";
+      installBtn.classList.remove("hidden");
+      installBtn.textContent = "Install Cheat Engine";
+    } else {
+      statusEl.textContent = "Cheat Engine is ready in your CrossOver bottle.";
+    }
+  }
+
+  installBtn.addEventListener("click", async () => {
+    if (installing) return;
+    installing = true;
+    installBtn.disabled = true;
+    installBtn.textContent = "Installing…";
+    progressEl.classList.remove("hidden");
+    progressEl.textContent = "Downloading…";
+
+    window.fasttravel.onInstallCEMacProgress((p) => {
+      if (p.stage === "downloading") progressEl.textContent = `Downloading… ${p.pct || 0}%`;
+      if (p.stage === "installing")  progressEl.textContent = "Installing into CrossOver bottle…";
+      if (p.stage === "done")        progressEl.textContent = "Done!";
+    });
+
+    const res = await window.fasttravel.installCEMac();
+    installing = false;
+    installBtn.disabled = false;
+    progressEl.classList.add("hidden");
+
+    if (res && res.ok) {
+      statusEl.textContent = "Cheat Engine installed successfully.";
+      installBtn.classList.add("hidden");
+    } else {
+      statusEl.textContent = `Install failed: ${(res && res.error) || "unknown error"}`;
+      installBtn.textContent = "Retry";
+    }
+  });
+
+  // Poll every 5 s so the banner updates when CE gets installed externally too.
+  refreshCeBanner();
+  setInterval(refreshCeBanner, 5000);
+}

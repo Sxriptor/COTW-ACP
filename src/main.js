@@ -6,8 +6,10 @@ const os = require("os");
 const crypto = require("crypto");
 const AdmZip = require("adm-zip");
 const { pathToFileURL } = require("url");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const https = require("https");
+
+const isMac = process.platform === "darwin";
 
 const STEAM_APP_ID = "1408610";
 
@@ -43,9 +45,24 @@ const DEFAULT_OVERLAY_SETTINGS = {
   trayBehavior: "ask",
   overlayEnabled: false,
   overlayHotkey: "F8",
+  modConfigs: {},
 };
 
 const ALLOWED_OVERLAY_HOTKEYS = new Set(["F6", "F7", "F8", "F9", "F10", "F11", "F12"]);
+
+const DEFAULT_MOD_CONFIGS = {
+  money:               { value: 50000 },
+  xp:                  { value: 1000 },
+  rodholder_boat:      { enabled: false },
+  unlimited_rodholder: { enabled: false },
+};
+
+const MOD_STATE_FILES = {
+  money:               "acm_money_config.txt",
+  xp:                  "acm_xp_config.txt",
+  rodholder_boat:      "acm_rodholder_boat_config.txt",
+  unlimited_rodholder: "acm_unlimited_rod_config.txt",
+};
 
 function getSplashVideoPath() {
   return app.isPackaged
@@ -303,6 +320,25 @@ function registerOverlayShortcut() {
   return globalShortcut.register(accelerator, toggleOverlayWindow);
 }
 
+function initModConfigs() {
+  if (!appSettings.modConfigs) appSettings.modConfigs = {};
+  for (const [id, defaults] of Object.entries(DEFAULT_MOD_CONFIGS)) {
+    appSettings.modConfigs[id] = { ...defaults, ...(appSettings.modConfigs[id] || {}) };
+  }
+  writeAllModConfigFiles();
+}
+
+function writeModConfigFile(id) {
+  const stateFile = MOD_STATE_FILES[id];
+  const values = appSettings.modConfigs && appSettings.modConfigs[id];
+  if (!stateFile || !values) return;
+  try { fs.writeFileSync(path.join(os.tmpdir(), stateFile), JSON.stringify(values)); } catch (_) {}
+}
+
+function writeAllModConfigFiles() {
+  for (const id of Object.keys(MOD_STATE_FILES)) writeModConfigFile(id);
+}
+
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -343,6 +379,7 @@ app.whenReady().then(() => {
   state = loadJson(statePath, { gameFolder: "", mods: [] });
   appSettings = { ...DEFAULT_OVERLAY_SETTINGS, ...loadJson(settingsPath, DEFAULT_OVERLAY_SETTINGS) };
   appSettings.overlayHotkey = normalizeOverlayHotkey(appSettings.overlayHotkey);
+  initModConfigs();
   initProfiles();
 
   if (!isGameFolder(state.gameFolder)) {
@@ -415,6 +452,15 @@ function registerIpc() {
   });
   ipcMain.handle("runtime-mods:list", () => ({ mods: overlayRuntimeMods() }));
   ipcMain.handle("runtime-mods:set", (_event, payload) => setOverlayRuntimeModEnabled(payload.id, !!payload.enabled));
+
+  ipcMain.handle("config:get", () => ({ ...appSettings.modConfigs }));
+  ipcMain.handle("config:set", (_event, { id, values }) => {
+    if (!appSettings.modConfigs || !appSettings.modConfigs[id]) return { ok: false };
+    appSettings.modConfigs[id] = { ...appSettings.modConfigs[id], ...values };
+    writeModConfigFile(id);
+    saveSettings();
+    return { ok: true, configs: { ...appSettings.modConfigs } };
+  });
 
   ipcMain.handle("update:download", () => autoUpdater.downloadUpdate().catch(() => {}));
   ipcMain.handle("update:install",  () => autoUpdater.quitAndInstall());
@@ -580,6 +626,7 @@ function registerIpc() {
   ipcMain.handle("fasttravel:start", () => setFastTravelEnabled(true));
   ipcMain.handle("fasttravel:stop", () => setFastTravelEnabled(false));
   ipcMain.handle("fasttravel:download-ce", (event) => downloadCheatEngine(event));
+  ipcMain.handle("fasttravel:install-ce-mac", (event) => installCEInBottle(event));
 
   // ---- Get Mods (fetch + one-click import from GitHub releases) ----
   ipcMain.handle("mods:fetch-available", (_event, forceRefresh) => fetchAvailableMods(!!forceRefresh));
@@ -614,8 +661,19 @@ function cheatEngineDownloadDir() {
 }
 
 // Shared with the .CT Lua script (same TEMP dir resolution on both sides).
+// On Mac with CrossOver, CE runs inside Wine so we write to the bottle's
+// C:\windows\temp — that's what Wine's %TEMP% resolves to, which is what
+// the Lua script reads via os.getenv("TEMP").
 function cheatEngineStateFile(mod) {
   const raw = mod && mod.stateFile ? mod.stateFile : "acm_fasttravel_state.txt";
+  if (isMac) {
+    const bottle = bottleForGameFolder();
+    if (bottle) {
+      const wineTemp = path.join(bottle, "drive_c", "windows", "temp");
+      try { fs.mkdirSync(wineTemp, { recursive: true }); } catch (_) {}
+      return path.join(wineTemp, raw);
+    }
+  }
   return path.join(os.tmpdir(), raw);
 }
 
@@ -633,8 +691,9 @@ function isCheatEngineRunning() {
   for (const proc of ceProcesses.values()) {
     if (proc && !proc.killed) return true;
   }
+  if (isMac) return false;
   try {
-    const out = require("child_process").execSync(
+    const out = execSync(
       'tasklist /FI "IMAGENAME eq cheatengine-x86_64.exe"', { encoding: "utf8" }
     );
     return /cheatengine/i.test(out);
@@ -669,6 +728,77 @@ function findCheatEngine() {
     }
   }
   return null;
+}
+
+// ── CrossOver / Wine helpers (Mac only) ──────────────────────────────────────
+
+// CrossOver ships its own Wine build inside the app bundle.
+function findCrossOverWine() {
+  const candidates = [
+    "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine64",
+    "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine",
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch (_) {}
+  }
+  return null;
+}
+
+// Given any path inside a CrossOver bottle, return the bottle root
+// (the directory that contains drive_c/).  Returns null if the path
+// isn't inside a bottle.
+function bottleForPath(p) {
+  const marker = `${path.sep}Bottles${path.sep}`;
+  const idx = p.indexOf(marker);
+  if (idx === -1) return null;
+  const rest = p.slice(idx + marker.length);
+  const bottleName = rest.split(path.sep)[0];
+  return p.slice(0, idx + marker.length) + bottleName;
+}
+
+function bottleForGameFolder() {
+  return state.gameFolder ? bottleForPath(state.gameFolder) : null;
+}
+
+// Look for a Cheat Engine executable inside a CrossOver bottle's drive_c.
+function findCEInBottle(bottlePrefix) {
+  const driveC = path.join(bottlePrefix, "drive_c");
+  const roots = [
+    path.join(driveC, "Program Files",       "Cheat Engine"),
+    path.join(driveC, "Program Files (x86)", "Cheat Engine"),
+  ];
+  for (const dir of roots) {
+    for (const name of CE_EXE_NAMES) {
+      const full = path.join(dir, name);
+      try { if (fs.existsSync(full)) return full; } catch (_) {}
+    }
+  }
+  return null;
+}
+
+// Convert a Mac path that lives inside a bottle's drive_c to a Windows
+// C:\ path, or fall back to the Wine Z:\ universal mount (Z: = /).
+function macToWinPath(macPath, bottlePrefix) {
+  const driveC = path.join(bottlePrefix, "drive_c");
+  if (macPath.startsWith(driveC)) {
+    return "C:" + macPath.slice(driveC.length).split(path.sep).join("\\");
+  }
+  return "Z:" + macPath.split(path.sep).join("\\");
+}
+
+// On Mac, find CrossOver's wine + CE in the game's bottle.
+// Returns { winePath, cePath } or null if either piece is missing.
+function findModTool() {
+  if (isMac) {
+    const wine = findCrossOverWine();
+    if (!wine) return null;
+    const bottle = bottleForGameFolder();
+    if (!bottle) return null;
+    const ce = findCEInBottle(bottle);
+    if (!ce) return null;
+    return { path: wine, source: "crossover", cePath: ce };
+  }
+  return findCheatEngine();
 }
 
 // The Fast-Travel Unlock mod is an ordinary drag-and-drop / Get Mods import
@@ -708,8 +838,8 @@ async function ensureScriptModApproved(mod) {
     defaultId: 1,
     cancelId: 1,
     title: "Run mod script?",
-    message: `"${key}" includes a script that runs through Cheat Engine.`,
-    detail: "This mod reads and writes the game's memory while it's active. Only allow it if you trust where you got this mod from.",
+    message: `"${key}" includes a script that reads and writes the game's memory.`,
+    detail: `This mod uses ${isMac ? "Cheat Engine running inside your CrossOver bottle" : "Cheat Engine"} to patch the running game process. Only allow it if you trust where you got this mod from.`,
   });
   if (response !== 0) return false;
 
@@ -724,8 +854,28 @@ function cheatEngineModTablePath(mod) {
 
 function fasttravelStatus() {
   const ceRunning = isCheatEngineRunning();
-  const found = findCheatEngine();
   const mod = findFastTravelMod();
+
+  if (isMac) {
+    const wine   = findCrossOverWine();
+    const bottle = wine ? bottleForGameFolder() : null;
+    const ce     = bottle ? findCEInBottle(bottle) : null;
+    return {
+      ceInstalled: !!ce,
+      cePath: ce || "",
+      ceSource: ce ? "crossover" : null,
+      ceRunning,
+      modPresent: !!mod,
+      modName: mod ? (mod.baseName || mod.name) : null,
+      on: !!mod && ceRunning && readCheatEngineState(mod),
+      // Mac-specific fields the renderer uses to show install guidance:
+      macCrossoverFound: !!wine,
+      macBottleFound:    !!bottle,
+      macCeInBottle:     !!ce,
+    };
+  }
+
+  const found = findCheatEngine();
   return {
     ceInstalled: !!found,
     cePath: found ? found.path : "",
@@ -733,7 +883,6 @@ function fasttravelStatus() {
     ceRunning,
     modPresent: !!mod,
     modName: mod ? (mod.baseName || mod.name) : null,
-    // "on" = the mod is actively revealing waypoints right now.
     on: !!mod && ceRunning && readCheatEngineState(mod),
   };
 }
@@ -748,6 +897,39 @@ function startCheatEngineMod(mod) {
   writeCheatEngineState(target, true);
   const existing = ceProcesses.get(target.id);
   if (existing && !existing.killed) return { ok: true, on: true, launched: false };
+
+  if (isMac) {
+    // Mac: the game runs inside a CrossOver bottle, so we run CE via Wine in
+    // that same bottle. CE then attaches to the game process exactly as it
+    // would on native Windows. The CT file is passed via the Z: drive (Wine
+    // maps Z: → / so any Mac path is reachable as Z:\path\to\file).
+    const wine = findCrossOverWine();
+    if (!wine) return { ok: false, error: "crossover-not-found" };
+    const bottle = bottleForGameFolder();
+    if (!bottle) return { ok: false, error: "no-bottle-found" };
+    const ce = findCEInBottle(bottle);
+    if (!ce) return { ok: false, error: "ce-not-in-bottle" };
+    const table = cheatEngineModTablePath(target);
+    if (!fs.existsSync(table)) return { ok: false, error: "table-missing" };
+    try {
+      const ceWinPath    = macToWinPath(ce,    bottle);
+      const tableWinPath = macToWinPath(table, bottle);
+      const proc = spawn(wine, [ceWinPath, tableWinPath], {
+        env: { ...process.env, WINEPREFIX: bottle },
+        detached: true,
+        stdio: "ignore",
+      });
+      ceProcesses.set(target.id, proc);
+      proc.on("exit", () => {
+        if (ceProcesses.get(target.id) === proc) ceProcesses.delete(target.id);
+      });
+      proc.unref();
+      return { ok: true, on: true, launched: true };
+    } catch (err) {
+      ceProcesses.delete(target.id);
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  }
 
   const found = findCheatEngine();
   if (!found) return { ok: false, error: "ce-not-found" };
@@ -799,7 +981,7 @@ async function setFastTravelEnabled(enabled) {
 }
 
 function overlayRuntimeMods() {
-  const found = findCheatEngine();
+  const found = findModTool();
   return state.mods
     .filter((mod) => mod.kind === "cheatengine" && isModEnabled(mod))
     .map((mod) => ({
@@ -823,10 +1005,75 @@ async function setOverlayRuntimeModEnabled(id, enabled) {
   return enabled ? startCheatEngineMod(mod) : stopCheatEngineMod(mod);
 }
 
+// Mac: download the CE installer and run it silently inside the CrossOver
+// bottle that contains the game. CE's NSIS installer supports /S for headless
+// install. Progress is streamed via "fasttravel:install-ce-progress".
+function installCEInBottle(event) {
+  const send = (p) => { try { event.sender.send("fasttravel:install-ce-progress", p); } catch (_) {} };
+
+  const wine = findCrossOverWine();
+  if (!wine) return Promise.resolve({ ok: false, error: "crossover-not-found" });
+  const bottle = bottleForGameFolder();
+  if (!bottle) return Promise.resolve({ ok: false, error: "no-bottle-found" });
+
+  const existing = findCEInBottle(bottle);
+  if (existing) return Promise.resolve({ ok: true, alreadyInstalled: true, cePath: existing });
+
+  const dest = path.join(os.tmpdir(), "CheatEngineSetup-acm.exe");
+
+  return new Promise((resolve) => {
+    send({ stage: "downloading", pct: 0 });
+
+    const get = (url, redirectsLeft) => {
+      https.get(url, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          return get(res.headers.location, redirectsLeft - 1);
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve({ ok: false, error: `http-${res.statusCode}` });
+          return;
+        }
+        const total = parseInt(res.headers["content-length"] || "0", 10);
+        let received = 0;
+        const out = fs.createWriteStream(dest);
+        res.on("data", (chunk) => {
+          received += chunk.length;
+          if (total) send({ stage: "downloading", received, total, pct: Math.round((received / total) * 100) });
+        });
+        res.pipe(out);
+        out.on("finish", () => out.close(() => {
+          send({ stage: "installing", pct: 0 });
+          // Run the NSIS installer silently inside the CrossOver bottle.
+          // /S = silent mode, /D sets install dir (optional — let CE pick its default).
+          const installerWinPath = macToWinPath(dest, bottle);
+          const proc = spawn(wine, [installerWinPath, "/S"], {
+            env: { ...process.env, WINEPREFIX: bottle },
+          });
+          proc.on("exit", () => {
+            const ce = findCEInBottle(bottle);
+            if (ce) {
+              send({ stage: "done", pct: 100 });
+              resolve({ ok: true, cePath: ce });
+            } else {
+              resolve({ ok: false, error: "install-finished-but-ce-not-found" });
+            }
+          });
+          proc.on("error", (err) => resolve({ ok: false, error: String(err.message || err) }));
+        }));
+        out.on("error", (err) => resolve({ ok: false, error: String(err.message || err) }));
+      }).on("error", (err) => resolve({ ok: false, error: String(err.message || err) }));
+    };
+    get(CE_DOWNLOAD_URL, 5);
+  });
+}
+
 // Download the official Cheat Engine installer into ACM's data dir, then open
 // it so the user can install (CE isn't distributed as a silent portable).
 // Progress is streamed to the renderer via "fasttravel:download-progress".
 function downloadCheatEngine(event) {
+  if (isMac) return Promise.resolve({ ok: false, error: "not-applicable-on-mac" });
   return new Promise((resolve) => {
     const existing = findCheatEngine();
     if (existing) { resolve({ ok: true, alreadyInstalled: true, cePath: existing.path }); return; }
@@ -1302,6 +1549,20 @@ function detectGameFolder() {
 }
 
 function candidateSteamRoots() {
+  if (isMac) {
+    // CrossOver bottles live at ~/Library/Application Support/CrossOver/Bottles/<name>/drive_c/
+    // Scan all bottles since the user may have named theirs anything.
+    const roots = [];
+    const bottlesDir = path.join(os.homedir(), "Library", "Application Support", "CrossOver", "Bottles");
+    try {
+      for (const bottle of fs.readdirSync(bottlesDir)) {
+        const driveC = path.join(bottlesDir, bottle, "drive_c");
+        roots.push(path.join(driveC, "Program Files (x86)", "Steam"));
+        roots.push(path.join(driveC, "Program Files", "Steam"));
+      }
+    } catch (_) {}
+    return roots;
+  }
   return [
     path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Steam"),
     path.join(process.env.ProgramFiles || "C:\\Program Files", "Steam"),

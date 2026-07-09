@@ -8,9 +8,12 @@
   "scripts": {
     "dev": "electron .",
     "make-ico": "node scripts/make-ico.js",
+    "make-icns": "node scripts/make-icns.js",
     "prepare-cheatengine": "node scripts/prepare-cheatengine.js",
     "dist:win": "npm run make-ico && npm run prepare-cheatengine && electron-builder --win",
-    "pack:win": "npm run make-ico && npm run prepare-cheatengine && electron-builder --win --dir"
+    "pack:win": "npm run make-ico && npm run prepare-cheatengine && electron-builder --win --dir",
+    "dist:mac": "npm run make-icns && electron-builder --mac",
+    "pack:mac": "npm run make-icns && electron-builder --mac --dir"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -27,7 +30,6 @@
     "directories": {
       "output": "dist"
     },
-    "icon": "public/logo.ico",
     "files": [
       "src/**/*",
       "public/**/*",
@@ -37,10 +39,6 @@
       {
         "from": "public/splash.mp4",
         "to": "splash.mp4"
-      },
-      {
-        "from": "resources/cheatengine",
-        "to": "cheatengine"
       }
     ],
     "win": {
@@ -48,7 +46,24 @@
         "nsis",
         "portable"
       ],
-      "icon": "public/logo.ico"
+      "icon": "public/logo.ico",
+      "extraResources": [
+        {
+          "from": "resources/cheatengine",
+          "to": "cheatengine"
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "public/logo.icns",
+      "category": "public.app-category.utilities"
+    },
+    "dmg": {
+      "artifactName": "ACM-${version}.dmg"
     },
     "nsis": {
       "oneClick": false,

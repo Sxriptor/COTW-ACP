@@ -40,11 +40,18 @@ contextBridge.exposeInMainWorld("runtimeMods", {
 });
 
 contextBridge.exposeInMainWorld("fasttravel", {
-  status:      () => ipcRenderer.invoke("fasttravel:status"),
-  start:       () => ipcRenderer.invoke("fasttravel:start"),
-  stop:        () => ipcRenderer.invoke("fasttravel:stop"),
-  downloadCE:  () => ipcRenderer.invoke("fasttravel:download-ce"),
-  onDownloadProgress: (cb) => ipcRenderer.on("fasttravel:download-progress", (_, p) => cb(p)),
+  status:       () => ipcRenderer.invoke("fasttravel:status"),
+  start:        () => ipcRenderer.invoke("fasttravel:start"),
+  stop:         () => ipcRenderer.invoke("fasttravel:stop"),
+  downloadCE:   () => ipcRenderer.invoke("fasttravel:download-ce"),
+  installCEMac: () => ipcRenderer.invoke("fasttravel:install-ce-mac"),
+  onDownloadProgress:     (cb) => ipcRenderer.on("fasttravel:download-progress",   (_, p) => cb(p)),
+  onInstallCEMacProgress: (cb) => ipcRenderer.on("fasttravel:install-ce-progress", (_, p) => cb(p)),
+});
+
+contextBridge.exposeInMainWorld("modConfig", {
+  get: () => ipcRenderer.invoke("config:get"),
+  set: (id, values) => ipcRenderer.invoke("config:set", { id, values }),
 });
 
 contextBridge.exposeInMainWorld("getMods", {
