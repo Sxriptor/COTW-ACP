@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("angler", {
   importPaths:       (paths) => ipcRenderer.invoke("mods:import", paths),
   setEnabled:        (id, enabled) => ipcRenderer.invoke("mods:set-enabled", { id, enabled }),
   removeMod:         (id) => ipcRenderer.invoke("mods:remove", id),
+  openModFolder:     (id) => ipcRenderer.invoke("mods:open-folder", id),
   applyEnabled:      () => ipcRenderer.invoke("mods:apply"),
   applyAndPlay:      () => ipcRenderer.invoke("mods:apply-play"),
   copyLaunchOptions: () => ipcRenderer.invoke("launch-options:copy"),
@@ -31,6 +32,11 @@ contextBridge.exposeInMainWorld("appSettings", {
 
 contextBridge.exposeInMainWorld("overlay", {
   toggle: () => ipcRenderer.invoke("overlay:toggle"),
+});
+
+contextBridge.exposeInMainWorld("runtimeMods", {
+  list: () => ipcRenderer.invoke("runtime-mods:list"),
+  set: (id, enabled) => ipcRenderer.invoke("runtime-mods:set", { id, enabled }),
 });
 
 contextBridge.exposeInMainWorld("fasttravel", {

@@ -420,8 +420,48 @@ function buildModRow(mod, versionGroups = {}) {
   count.className = "mod-count";
   count.textContent = `${mod.fileCount} file${mod.fileCount === 1 ? "" : "s"}`;
 
-  row.append(label, nameArea, count);
+  row.append(label, nameArea, count, buildModMenu(mod));
   return row;
+}
+
+function closeAllModMenus() {
+  document.querySelectorAll(".mod-menu.open").forEach((m) => m.classList.remove("open"));
+}
+document.addEventListener("click", closeAllModMenus);
+
+function buildModMenu(mod) {
+  const wrap = document.createElement("div");
+  wrap.className = "mod-menu-wrap";
+  wrap.addEventListener("click", (e) => e.stopPropagation());
+
+  const btn = document.createElement("button");
+  btn.className = "mod-menu-btn";
+  btn.textContent = "⋯";
+  btn.title = "More options";
+
+  const menu = document.createElement("div");
+  menu.className = "mod-menu";
+
+  const openFolder = document.createElement("button");
+  openFolder.className = "mod-menu-item";
+  openFolder.textContent = "Open in Explorer";
+  openFolder.addEventListener("click", async () => {
+    menu.classList.remove("open");
+    const res = await window.angler.openModFolder(mod.id);
+    if (!res || !res.ok) {
+      setStatus("Couldn't open mod folder: " + ((res && res.error) || "unknown error"), true);
+    }
+  });
+  menu.append(openFolder);
+
+  btn.addEventListener("click", () => {
+    const isOpen = menu.classList.contains("open");
+    closeAllModMenus();
+    if (!isOpen) menu.classList.add("open");
+  });
+
+  wrap.append(btn, menu);
+  return wrap;
 }
 
 function selectedDetails(mod) {
@@ -457,23 +497,43 @@ function ceSourceLabel(source) {
   return "Cheat Engine";
 }
 
-// ---- Get Mods (fetches releases from GitHub, one-click import) ----
+// ---- Get Mods (two sections: Official from GitHub, Nexus placeholder) ----
+const GETMODS_PAGE_SIZE = 3;
+
 const gm = {
   status: document.getElementById("get-mods-status"),
-  list:   document.getElementById("get-mods-list"),
   refreshBtn: document.getElementById("get-mods-refresh"),
+  official: {
+    list:   document.getElementById("getmods-official-list"),
+    toggle: document.getElementById("getmods-official-toggle"),
+    expanded: false,
+  },
+  nexus: {
+    list:   document.getElementById("getmods-nexus-list"),
+    toggle: document.getElementById("getmods-nexus-toggle"),
+    expanded: false,
+  },
 };
 
 let getModsCache = [];
 let downloadingTag = null;
 
 function initGetMods() {
-  if (!gm.list) return;
+  if (!gm.official.list) return;
   gm.refreshBtn.addEventListener("click", () => loadGetMods(true));
+
+  gm.official.toggle.addEventListener("click", () => {
+    gm.official.expanded = !gm.official.expanded;
+    renderModSection(gm.official, getModsCache);
+  });
+  gm.nexus.toggle.addEventListener("click", () => {
+    gm.nexus.expanded = !gm.nexus.expanded;
+    renderModSection(gm.nexus, []);
+  });
 
   window.getMods.onDownloadProgress((p) => {
     if (!p || !downloadingTag) return;
-    const card = gm.list.querySelector(`[data-tag="${cssEscape(downloadingTag)}"]`);
+    const card = document.querySelector(`.getmods-card[data-tag="${cssEscape(downloadingTag)}"]`);
     if (!card) return;
     const fill = card.querySelector(".getmods-progress-fill");
     const text = card.querySelector(".getmods-progress-text");
@@ -493,7 +553,7 @@ async function loadGetMods(forceRefresh) {
   const res = await window.getMods.fetchAvailable(!!forceRefresh);
   if (!res || !res.ok) {
     gm.status.textContent = "Couldn't load mods: " + ((res && res.error) || "unknown error");
-    gm.list.innerHTML = "";
+    gm.official.list.innerHTML = "";
     return;
   }
   getModsCache = res.mods || [];
@@ -545,107 +605,117 @@ function markdownLiteToHtml(md) {
   return html;
 }
 
-function renderGetModsList() {
-  gm.list.innerHTML = "";
-  for (const mod of getModsCache) {
-    const card = document.createElement("div");
-    card.className = "getmods-card";
-    card.dataset.tag = mod.tag;
+function buildModCard(mod) {
+  const card = document.createElement("div");
+  card.className = "getmods-card";
+  card.dataset.tag = mod.tag;
 
-    const head = document.createElement("div");
-    head.className = "getmods-card-head";
-    const nameEl = document.createElement("strong");
-    nameEl.textContent = mod.modName;
-    const versionEl = document.createElement("span");
-    versionEl.className = "getmods-version";
-    versionEl.textContent = `v${mod.version}`;
-    head.append(nameEl, versionEl);
+  const head = document.createElement("div");
+  head.className = "getmods-card-head";
+  const nameEl = document.createElement("strong");
+  nameEl.textContent = mod.modName;
+  const versionEl = document.createElement("span");
+  versionEl.className = "getmods-version";
+  versionEl.textContent = `v${mod.version}`;
+  head.append(nameEl, versionEl);
 
-    const meta = document.createElement("div");
-    meta.className = "getmods-card-meta";
-    const sizeStr = mod.size
-      ? (mod.size >= 1024 * 1024 ? (mod.size / (1024 * 1024)).toFixed(1) + " MB" : Math.max(1, Math.round(mod.size / 1024)) + " KB")
-      : "";
-    const dateStr = mod.publishedAt ? new Date(mod.publishedAt).toLocaleDateString() : "";
-    meta.textContent = [dateStr, sizeStr].filter(Boolean).join(" · ");
+  const meta = document.createElement("div");
+  meta.className = "getmods-card-meta";
+  const sizeStr = mod.size
+    ? (mod.size >= 1024 * 1024 ? (mod.size / (1024 * 1024)).toFixed(1) + " MB" : Math.max(1, Math.round(mod.size / 1024)) + " KB")
+    : "";
+  const dateStr = mod.publishedAt ? new Date(mod.publishedAt).toLocaleDateString() : "";
+  meta.textContent = [dateStr, sizeStr].filter(Boolean).join(" · ");
 
-    card.append(head, meta);
+  card.append(head, meta);
 
-    if (mod.official) {
-      const officialBadge = document.createElement("div");
-      officialBadge.className = "getmods-official";
-      officialBadge.title = "Officially created and tested by the creator of ACM";
-      officialBadge.textContent = "★ Official — created & tested by ACM's creator";
-      card.append(officialBadge);
-    }
-
-    const excerpt = excerptReadme(mod.body);
-    if (excerpt) {
-      const readme = document.createElement("div");
-      readme.className = "getmods-readme";
-      readme.innerHTML = markdownLiteToHtml(excerpt);
-      card.append(readme);
-    }
-
-    const already = importedVersionFor(mod.modName);
-    if (already) {
-      const badge = document.createElement("div");
-      badge.className = "getmods-imported";
-      badge.textContent = "Already in My Mods";
-      card.append(badge);
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "getmods-actions";
-
-    const btn = document.createElement("button");
-    btn.className = "getmods-download primary";
-    btn.textContent = already ? "Download Again" : "Download & Add";
-
-    const githubBtn = document.createElement("button");
-    githubBtn.className = "getmods-github";
-    githubBtn.textContent = "View on GitHub";
-    githubBtn.addEventListener("click", () => {
-      if (mod.htmlUrl) window.getMods.openReleasePage(mod.htmlUrl);
-    });
-
-    actions.append(btn, githubBtn);
-    card.append(actions);
-
-    const progressWrap = document.createElement("div");
-    progressWrap.className = "getmods-progress-wrap hidden";
-    const progress = document.createElement("div");
-    progress.className = "getmods-progress";
-    const progressFill = document.createElement("div");
-    progressFill.className = "getmods-progress-fill";
-    progress.append(progressFill);
-    const progressText = document.createElement("span");
-    progressText.className = "getmods-progress-text";
-    progressText.textContent = "0%";
-    progressWrap.append(progress, progressText);
-    card.append(progressWrap);
-
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      progressWrap.classList.remove("hidden");
-      progressFill.style.width = "0%";
-      progressText.textContent = "0%";
-      downloadingTag = mod.tag;
-      const res = await window.getMods.downloadAndImport({ zipUrl: mod.zipUrl, zipName: mod.zipName, modName: mod.modName });
-      downloadingTag = null;
-      progressWrap.classList.add("hidden");
-      btn.disabled = false;
-      if (res && res.ok) {
-        setStatus(`${mod.modName} added to My Mods.`);
-        await refresh();
-        renderGetModsList();
-      } else {
-        setStatus(`Couldn't download ${mod.modName}: ` + ((res && res.error) || "unknown error"), true);
-      }
-    });
-
-    gm.list.appendChild(card);
+  const excerpt = excerptReadme(mod.body);
+  if (excerpt) {
+    const readme = document.createElement("div");
+    readme.className = "getmods-readme";
+    readme.innerHTML = markdownLiteToHtml(excerpt);
+    card.append(readme);
   }
+
+  const already = importedVersionFor(mod.modName);
+  if (already) {
+    const badge = document.createElement("div");
+    badge.className = "getmods-imported";
+    badge.textContent = "Already in My Mods";
+    card.append(badge);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "getmods-actions";
+
+  const btn = document.createElement("button");
+  btn.className = "getmods-download primary";
+  btn.textContent = already ? "Download Again" : "Download";
+
+  const githubBtn = document.createElement("button");
+  githubBtn.className = "getmods-github";
+  githubBtn.textContent = "View on GitHub";
+  githubBtn.addEventListener("click", () => {
+    if (mod.htmlUrl) window.getMods.openReleasePage(mod.htmlUrl);
+  });
+
+  actions.append(btn, githubBtn);
+  card.append(actions);
+
+  const progressWrap = document.createElement("div");
+  progressWrap.className = "getmods-progress-wrap hidden";
+  const progress = document.createElement("div");
+  progress.className = "getmods-progress";
+  const progressFill = document.createElement("div");
+  progressFill.className = "getmods-progress-fill";
+  progress.append(progressFill);
+  const progressText = document.createElement("span");
+  progressText.className = "getmods-progress-text";
+  progressText.textContent = "0%";
+  progressWrap.append(progress, progressText);
+  card.append(progressWrap);
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    progressWrap.classList.remove("hidden");
+    progressFill.style.width = "0%";
+    progressText.textContent = "0%";
+    downloadingTag = mod.tag;
+    const res = await window.getMods.downloadAndImport({ zipUrl: mod.zipUrl, zipName: mod.zipName, modName: mod.modName });
+    downloadingTag = null;
+    progressWrap.classList.add("hidden");
+    btn.disabled = false;
+    if (res && res.ok) {
+      setStatus(`${mod.modName} added to My Mods.`);
+      await refresh();
+      renderGetModsList();
+    } else {
+      setStatus(`Couldn't download ${mod.modName}: ` + ((res && res.error) || "unknown error"), true);
+    }
+  });
+
+  return card;
+}
+
+// Renders one section (official/nexus): up to GETMODS_PAGE_SIZE cards, with
+// a "Show more" toggle that expands to the full list (FAQ-accordion style).
+function renderModSection(section, mods) {
+  section.list.innerHTML = "";
+  const showCount = section.expanded ? mods.length : Math.min(GETMODS_PAGE_SIZE, mods.length);
+  for (let i = 0; i < showCount; i++) {
+    section.list.appendChild(buildModCard(mods[i]));
+  }
+  if (mods.length > GETMODS_PAGE_SIZE) {
+    section.toggle.classList.remove("hidden");
+    section.toggle.textContent = section.expanded ? "Show less" : `Show more (${mods.length - GETMODS_PAGE_SIZE})`;
+  } else {
+    section.toggle.classList.add("hidden");
+  }
+}
+
+function renderGetModsList() {
+  renderModSection(gm.official, getModsCache);
+  renderModSection(gm.nexus, []); // Nexus integration not built yet
 }
 
 initGetMods();

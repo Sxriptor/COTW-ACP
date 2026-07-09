@@ -220,12 +220,15 @@ body {
 .sidebar.collapsed .nav-label {
   opacity: 0;
   pointer-events: none;
+  width: 0;
+  margin: 0;
 }
 
 .sidebar.collapsed .nav-item {
   justify-content: center;
   padding: 0;
   border-left: none;
+  gap: 0;
 }
 
 .sidebar.collapsed .nav-item.active {
@@ -488,7 +491,7 @@ body {
 
 .mod-row {
   display: grid;
-  grid-template-columns: 40px 1fr auto;
+  grid-template-columns: 40px 1fr auto auto;
   align-items: center;
   padding: 7px 12px;
   border-bottom: 1px solid var(--border);
@@ -547,6 +550,53 @@ body {
   padding: 1px 7px;
   white-space: nowrap;
 }
+
+/* ── MOD ROW OVERFLOW MENU ── */
+.mod-menu-wrap { position: relative; flex-shrink: 0; }
+.mod-menu-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mod-menu-btn:hover { background: var(--panel-3); border-color: var(--border); color: var(--text); }
+
+.mod-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  padding: 4px;
+  z-index: 20;
+}
+.mod-menu.open { display: block; }
+
+.mod-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 7px 9px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.mod-menu-item:hover { background: var(--panel-2); color: var(--text); }
 
 /* ── TOGGLE ── */
 .toggle {
@@ -1029,6 +1079,32 @@ footer.error::before { background: var(--text-2); }
   align-items: center;
   justify-content: space-between;
 }
+.getmods-section { margin-top: 22px; }
+.getmods-section:first-of-type { margin-top: 14px; }
+.getmods-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.getmods-section-head h3 { margin: 0; font-size: 13px; color: var(--text); }
+.getmods-section-sub { font-size: 11.5px; color: var(--muted); }
+.getmods-showmore {
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.getmods-showmore:hover { background: var(--panel-2); color: var(--text); }
 .getmods-list {
   margin-top: 14px;
   display: grid;
@@ -1061,16 +1137,6 @@ footer.error::before { background: var(--text-2); }
   white-space: nowrap;
 }
 .getmods-card-meta { font-size: 11.5px; color: var(--muted); }
-.getmods-official {
-  font-size: 11px;
-  font-weight: 600;
-  color: #ffd76a;
-  background: rgba(255, 215, 106, 0.1);
-  border: 1px solid rgba(255, 215, 106, 0.28);
-  border-radius: 999px;
-  padding: 3px 9px;
-  width: fit-content;
-}
 .getmods-readme {
   font-size: 12px;
   line-height: 1.55;
@@ -1082,6 +1148,10 @@ footer.error::before { background: var(--text-2); }
 .getmods-imported { font-size: 11.5px; color: #7fdc8f; }
 .getmods-actions { display: flex; gap: 8px; margin-top: 4px; }
 .getmods-download {
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   padding: 8px 12px;
   border-radius: var(--radius);
@@ -1095,6 +1165,10 @@ footer.error::before { background: var(--text-2); }
 .getmods-download:hover:not(:disabled) { background: var(--panel-3); }
 .getmods-download:disabled { opacity: .5; cursor: default; }
 .getmods-github {
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 8px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--border);

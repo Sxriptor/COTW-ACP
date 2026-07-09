@@ -1,52 +1,60 @@
-// Renderer for the in-game overlay window (overlay.html). Runs with the same
-// preload as the main window, so window.fasttravel is available.
+const modsEl = document.getElementById("mods");
+const idleEl = document.getElementById("idle");
 
-const btn = document.getElementById("ft-btn");
-const statusEl = document.getElementById("ft-status");
+let busyIds = new Set();
 
-let busy = false;
+function renderMods(mods) {
+  modsEl.innerHTML = "";
+  const visible = Array.isArray(mods) ? mods : [];
 
-function render(s) {
-  const on = !!(s && s.on);
-  const ceInstalled = !!(s && s.ceInstalled);
-  const modPresent = !!(s && s.modPresent);
+  modsEl.classList.toggle("hidden", visible.length === 0);
+  idleEl.classList.toggle("hidden", visible.length !== 0);
 
-  btn.disabled = !ceInstalled || !modPresent || busy;
-  btn.classList.toggle("on", on);
-  btn.textContent = on ? "Restore My Unlocks" : "Unlock All Fast Travel";
+  for (const mod of visible) {
+    const row = document.createElement("div");
+    row.className = "mod-row";
 
-  if (!modPresent) {
-    statusEl.textContent = "Import \"Unlock All Fast Travel\" from Get Mods first.";
-  } else if (!ceInstalled) {
-    statusEl.textContent = "Cheat Engine not found — install it and try again.";
-  } else if (on) {
-    statusEl.textContent = "All fast-travel points shown. Click to restore your real unlocks.";
-  } else {
-    statusEl.textContent = "Only your real unlocks are shown right now.";
+    const text = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "mod-name";
+    name.textContent = mod.name;
+    const status = document.createElement("div");
+    status.className = "mod-status";
+    status.textContent = mod.on ? "Live patch enabled." : "Loaded in ACM, currently disabled.";
+    text.append(name, status);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mod-btn" + (mod.on ? " on" : "");
+    btn.textContent = mod.on ? "Disable" : "Enable";
+    btn.disabled = busyIds.has(mod.id) || !mod.ceInstalled;
+    if (!mod.ceInstalled) status.textContent = "Cheat Engine not found.";
+    btn.addEventListener("click", async () => {
+      if (busyIds.has(mod.id)) return;
+      busyIds.add(mod.id);
+      await refresh();
+      try {
+        await window.runtimeMods.set(mod.id, !mod.on);
+      } catch (_) {}
+      busyIds.delete(mod.id);
+      await refresh();
+    });
+
+    row.append(text, btn);
+    modsEl.append(row);
   }
 }
 
 async function refresh() {
   try {
-    const s = await window.fasttravel.status();
-    render(s);
+    const res = await window.runtimeMods.list();
+    renderMods((res && res.mods) || []);
   } catch (_) {
-    statusEl.textContent = "Couldn't reach ACM.";
+    modsEl.classList.add("hidden");
+    idleEl.classList.remove("hidden");
+    idleEl.textContent = "Couldn't reach ACM.";
   }
 }
-
-btn.addEventListener("click", async () => {
-  if (busy) return;
-  busy = true;
-  btn.disabled = true;
-  try {
-    const s = await window.fasttravel.status();
-    if (s && s.on) await window.fasttravel.stop();
-    else await window.fasttravel.start();
-  } catch (_) {}
-  busy = false;
-  await refresh();
-});
 
 refresh();
 setInterval(refresh, 2000);

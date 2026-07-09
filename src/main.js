@@ -251,6 +251,10 @@ function createOverlayWindow() {
     overlayWindow = null;
   });
 
+  overlayWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {
+    console.log(`[overlay console] ${message} (${sourceId}:${line})`);
+  });
+
   overlayWindow.loadFile(path.join(__dirname, "overlay.html"));
   positionOverlayWindow();
   return overlayWindow;
@@ -409,6 +413,8 @@ function registerIpc() {
       visible: !!overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible(),
     };
   });
+  ipcMain.handle("runtime-mods:list", () => ({ mods: overlayRuntimeMods() }));
+  ipcMain.handle("runtime-mods:set", (_event, payload) => setOverlayRuntimeModEnabled(payload.id, !!payload.enabled));
 
   ipcMain.handle("update:download", () => autoUpdater.downloadUpdate().catch(() => {}));
   ipcMain.handle("update:install",  () => autoUpdater.quitAndInstall());
@@ -461,7 +467,16 @@ function registerIpc() {
     return publicState();
   });
 
-  ipcMain.handle("mods:set-enabled", (_event, payload) => {
+  ipcMain.handle("mods:set-enabled", async (_event, payload) => {
+    const mod = state.mods.find((m) => m.id === payload.id);
+
+    // Cheat Engine mods carry an embedded Lua script — get explicit,
+    // once-per-mod user approval before ever running it.
+    if (payload.enabled && mod && mod.kind === "cheatengine") {
+      const approved = await ensureScriptModApproved(mod);
+      if (!approved) return publicState(); // declined — leave it disabled
+    }
+
     const profile = getActiveProfile();
     if (profile) {
       if (payload.enabled) {
@@ -474,19 +489,27 @@ function registerIpc() {
 
     // Cheat Engine mods aren't game-file mods — toggling them starts/stops
     // the live memory tweak instead of copying anything into the game folder.
-    const mod = state.mods.find((m) => m.id === payload.id);
     if (mod && mod.kind === "cheatengine") {
-      if (payload.enabled) startFastTravel(mod);
-      else stopFastTravel();
+      if (payload.enabled) startCheatEngineMod(mod);
+      else stopCheatEngineMod(mod);
     }
 
     return publicState();
   });
 
+  ipcMain.handle("mods:open-folder", async (_event, id) => {
+    const mod = state.mods.find((item) => item.id === id);
+    if (!mod) return { ok: false, error: "mod-not-found" };
+    const dir = modPath(mod);
+    if (!fs.existsSync(dir)) return { ok: false, error: "folder-missing" };
+    const err = await shell.openPath(dir);
+    return err ? { ok: false, error: err } : { ok: true };
+  });
+
   ipcMain.handle("mods:remove", (_event, id) => {
     const mod = state.mods.find((item) => item.id === id);
     if (mod) {
-      if (mod.kind === "cheatengine") stopFastTravel();
+      if (mod.kind === "cheatengine") stopCheatEngineMod(mod);
       state.mods = state.mods.filter((item) => item.id !== id);
       for (const profile of state.profiles) {
         profile.enabledMods = profile.enabledMods.filter((eid) => eid !== id);
@@ -584,29 +607,32 @@ function registerIpc() {
 // require relaunching Cheat Engine. CE is only ever launched once per
 // session; after that we just flip the flag file.
 
-let ceProcess = null;
+const ceProcesses = new Map();
 
 function cheatEngineDownloadDir() {
   return path.join(dataRoot, "cheatengine");
 }
 
 // Shared with the .CT Lua script (same TEMP dir resolution on both sides).
-function fasttravelStateFile() {
-  return path.join(os.tmpdir(), "acm_fasttravel_state.txt");
+function cheatEngineStateFile(mod) {
+  const raw = mod && mod.stateFile ? mod.stateFile : "acm_fasttravel_state.txt";
+  return path.join(os.tmpdir(), raw);
 }
 
-function writeFasttravelState(on) {
-  try { fs.writeFileSync(fasttravelStateFile(), on ? "1" : "0"); } catch (_) {}
+function writeCheatEngineState(mod, on) {
+  try { fs.writeFileSync(cheatEngineStateFile(mod), on ? "1" : "0"); } catch (_) {}
 }
 
-function readFasttravelState() {
-  try { return fs.readFileSync(fasttravelStateFile(), "utf8").trim() === "1"; } catch (_) { return false; }
+function readCheatEngineState(mod) {
+  try { return fs.readFileSync(cheatEngineStateFile(mod), "utf8").trim() === "1"; } catch (_) { return false; }
 }
 
 // Best-effort check for whether a Cheat Engine process is alive, independent
 // of whether *we* launched it (covers the user having it open already).
 function isCheatEngineRunning() {
-  if (ceProcess && !ceProcess.killed) return true;
+  for (const proc of ceProcesses.values()) {
+    if (proc && !proc.killed) return true;
+  }
   try {
     const out = require("child_process").execSync(
       'tasklist /FI "IMAGENAME eq cheatengine-x86_64.exe"', { encoding: "utf8" }
@@ -652,9 +678,44 @@ function findCheatEngineMod() {
   return state.mods.find((m) => m.kind === "cheatengine") || null;
 }
 
+function findFastTravelMod() {
+  return state.mods.find((m) =>
+    m.kind === "cheatengine" &&
+    (
+      m.ctFile === "fasttravel_unlock.CT" ||
+      (m.baseName || m.name) === "Unlock All Fast Travel"
+    )
+  ) || null;
+}
+
 function isModEnabled(mod) {
   const profile = getActiveProfile();
   return !!(profile && mod && profile.enabledMods.includes(mod.id));
+}
+
+// Cheat Engine mods run an embedded Lua script against the game's memory, so
+// the first time a given mod is turned on we ask for explicit permission.
+// Approval is remembered by mod name so it isn't asked again on later
+// toggles or after re-importing the same mod. CE itself decides when/how to
+// close once the script has run — that lifecycle is untouched here.
+async function ensureScriptModApproved(mod) {
+  const key = mod.baseName || mod.name;
+  if (state.approvedScriptMods.includes(key)) return true;
+
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: "warning",
+    buttons: ["Allow", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    title: "Run mod script?",
+    message: `"${key}" includes a script that runs through Cheat Engine.`,
+    detail: "This mod reads and writes the game's memory while it's active. Only allow it if you trust where you got this mod from.",
+  });
+  if (response !== 0) return false;
+
+  state.approvedScriptMods.push(key);
+  saveState();
+  return true;
 }
 
 function cheatEngineModTablePath(mod) {
@@ -664,7 +725,7 @@ function cheatEngineModTablePath(mod) {
 function fasttravelStatus() {
   const ceRunning = isCheatEngineRunning();
   const found = findCheatEngine();
-  const mod = findCheatEngineMod();
+  const mod = findFastTravelMod();
   return {
     ceInstalled: !!found,
     cePath: found ? found.path : "",
@@ -673,31 +734,35 @@ function fasttravelStatus() {
     modPresent: !!mod,
     modName: mod ? (mod.baseName || mod.name) : null,
     // "on" = the mod is actively revealing waypoints right now.
-    on: !!mod && ceRunning && readFasttravelState(),
+    on: !!mod && ceRunning && readCheatEngineState(mod),
   };
 }
 
 // Turns the mod ON. Launches Cheat Engine with the mod's own table the first
 // time (auto-attaches, auto-runs); after that, just flips the shared flag so
 // the already-running script picks it up within ~1s.
-function startFastTravel(mod) {
+function startCheatEngineMod(mod) {
   const target = mod || findCheatEngineMod();
   if (!target) return { ok: false, error: "mod-not-imported" };
 
-  writeFasttravelState(true);
-  if (isCheatEngineRunning()) return { ok: true, on: true, launched: false };
+  writeCheatEngineState(target, true);
+  const existing = ceProcesses.get(target.id);
+  if (existing && !existing.killed) return { ok: true, on: true, launched: false };
 
   const found = findCheatEngine();
   if (!found) return { ok: false, error: "ce-not-found" };
   const table = cheatEngineModTablePath(target);
   if (!fs.existsSync(table)) return { ok: false, error: "table-missing" };
   try {
-    ceProcess = spawn(found.path, [table], { detached: true, stdio: "ignore" });
-    ceProcess.on("exit", () => { ceProcess = null; });
-    ceProcess.unref();
+    const proc = spawn(found.path, [table], { detached: true, stdio: "ignore" });
+    ceProcesses.set(target.id, proc);
+    proc.on("exit", () => {
+      if (ceProcesses.get(target.id) === proc) ceProcesses.delete(target.id);
+    });
+    proc.unref();
     return { ok: true, on: true, launched: true };
   } catch (err) {
-    ceProcess = null;
+    ceProcesses.delete(target.id);
     return { ok: false, error: String((err && err.message) || err) };
   }
 }
@@ -706,23 +771,56 @@ function startFastTravel(mod) {
 // is instant; the script itself re-locks only the points it revealed,
 // leaving anything genuinely traveled-to untouched. We never touch save
 // files or kill the process here.
-function stopFastTravel() {
-  writeFasttravelState(false);
+function stopCheatEngineMod(mod) {
+  const target = mod || findCheatEngineMod();
+  if (!target) return { ok: false, error: "mod-not-imported" };
+  writeCheatEngineState(target, false);
   return { ok: true, on: false };
 }
 
 // Shared by the overlay button and the My Mods toggle so both stay in sync:
 // flips the mod's enabled state in the active profile AND starts/stops CE.
-function setFastTravelEnabled(enabled) {
-  const mod = findCheatEngineMod();
+async function setFastTravelEnabled(enabled) {
+  const mod = findFastTravelMod();
   if (!mod) return { ok: false, error: "mod-not-imported" };
+
+  if (enabled) {
+    const approved = await ensureScriptModApproved(mod);
+    if (!approved) return { ok: false, error: "declined" };
+  }
+
   const profile = getActiveProfile();
   if (profile) {
     if (enabled) { if (!profile.enabledMods.includes(mod.id)) profile.enabledMods.push(mod.id); }
     else { profile.enabledMods = profile.enabledMods.filter((id) => id !== mod.id); }
     saveState();
   }
-  return enabled ? startFastTravel(mod) : stopFastTravel();
+  return enabled ? startCheatEngineMod(mod) : stopCheatEngineMod(mod);
+}
+
+function overlayRuntimeMods() {
+  const found = findCheatEngine();
+  return state.mods
+    .filter((mod) => mod.kind === "cheatengine" && isModEnabled(mod))
+    .map((mod) => ({
+      id: mod.id,
+      name: mod.overlayLabel || mod.baseName || mod.name,
+      on: readCheatEngineState(mod),
+      ceInstalled: !!found,
+      ceSource: found ? found.source : null,
+      enabledInAcm: true,
+    }));
+}
+
+async function setOverlayRuntimeModEnabled(id, enabled) {
+  const mod = state.mods.find((item) => item.id === id && item.kind === "cheatengine");
+  if (!mod) return { ok: false, error: "mod-not-found" };
+  if (!isModEnabled(mod)) return { ok: false, error: "mod-disabled" };
+  if (enabled) {
+    const approved = await ensureScriptModApproved(mod);
+    if (!approved) return { ok: false, error: "declined" };
+  }
+  return enabled ? startCheatEngineMod(mod) : stopCheatEngineMod(mod);
 }
 
 // Download the official Cheat Engine installer into ACM's data dir, then open
@@ -780,10 +878,6 @@ function downloadCheatEngine(event) {
 const MODS_REPO_OWNER = "Sxriptor";
 const MODS_REPO_NAME = "COTW-ACP";
 const MOD_TAG_RE = /^(.+)-v([0-9]+(?:\.[0-9]+)*)$/i;
-
-// Mods (by lowercased name) built and tested by ACM's own creator. Shown
-// with an "Official" badge in Get Mods.
-const OFFICIAL_MODS = new Set(["crystalwater", "sunglasses"]);
 const RELEASES_CACHE_MS = 5 * 60 * 1000;
 
 let releasesCache = { at: 0, data: null };
@@ -857,7 +951,6 @@ async function fetchAvailableMods(forceRefresh) {
         publishedAt: r.published_at || null,
         htmlUrl: r.html_url || null,
         body: r.body || "",
-        official: OFFICIAL_MODS.has(key),
       });
     }
   }
@@ -959,16 +1052,24 @@ function importPaths(paths) {
 }
 
 // Special mods (currently just "cheatengine") carry an acm-mod.json manifest
-// at their payload root instead of game VFS files. Detected so ACM knows not
-// to copy their contents into the game's mods folder, and to drive them via
-// Cheat Engine start/stop instead of a plain file toggle.
+// at their payload root, in addition to (optionally) ordinary game VFS
+// files. Detected so ACM knows to drive them via Cheat Engine start/stop
+// alongside the normal file toggle, rather than instead of it — the
+// manifest and .CT table themselves are excluded from the VFS copy since
+// they're not game files.
 function readAcmModManifest(payloadRoot) {
   const manifestPath = path.join(payloadRoot, "acm-mod.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {
     const data = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     if (data && data.type === "cheatengine" && data.table) {
-      return { kind: "cheatengine", ctFile: data.table, displayName: data.displayName || null };
+      return {
+        kind: "cheatengine",
+        ctFile: data.table,
+        displayName: data.displayName || null,
+        stateFile: data.stateFile || null,
+        overlayLabel: data.overlayLabel || null,
+      };
     }
   } catch (_) {}
   return null;
@@ -979,6 +1080,8 @@ function applyAcmManifest(mod, payloadRoot) {
   if (!manifest) return;
   mod.kind = manifest.kind;
   mod.ctFile = manifest.ctFile;
+  mod.stateFile = manifest.stateFile;
+  mod.overlayLabel = manifest.overlayLabel;
   if (manifest.displayName) {
     mod.name = manifest.displayName;
     mod.baseName = manifest.displayName;
@@ -1055,11 +1158,19 @@ function applyEnabledMods() {
   const activeProfile = getActiveProfile();
   const enabledSet = new Set(activeProfile ? activeProfile.enabledMods : []);
   const installed = [];
-  for (const mod of state.mods.filter((item) => enabledSet.has(item.id) && item.kind !== "cheatengine")) {
+  for (const mod of state.mods.filter((item) => enabledSet.has(item.id))) {
     const root = modPath(mod);
     if (!fs.existsSync(root)) continue;
+    // Cheat Engine mods may *also* ship ordinary VFS payload files alongside
+    // their acm-mod.json manifest (e.g. a data-only fix bundled with a live
+    // memory patch). Copy everything except the CE-specific files, which
+    // don't belong in the game's mods folder.
+    const skipRelative = mod.kind === "cheatengine"
+      ? new Set(["acm-mod.json", mod.ctFile].filter(Boolean))
+      : null;
     for (const file of walkFiles(root)) {
       const relative = path.relative(root, file);
+      if (skipRelative && skipRelative.has(relative.split(path.sep).join("/"))) continue;
       const target = path.join(modsRoot, relative);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.copyFileSync(file, target);
@@ -1313,6 +1424,7 @@ function getActiveProfile() {
 }
 
 function initProfiles() {
+  if (!Array.isArray(state.approvedScriptMods)) state.approvedScriptMods = [];
   if (!Array.isArray(state.profiles) || state.profiles.length === 0) {
     // Migrate: seed default profile from existing mod.enabled flags
     const enabledMods = state.mods.filter((m) => m.enabled).map((m) => m.id);

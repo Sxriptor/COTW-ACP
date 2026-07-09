@@ -1,7 +1,7 @@
 {
   "name": "angler-cm",
-  "version": "1.0.0",
-  "author": "Cole Templin (https://github.com/sxriptor)",
+  "version": "1.0.1",
+  "author": "Sxriptor (https://github.com/sxriptor)",
   "description": "ACM - (Angler Content Manager)",
   "main": "src/main.js",
   "private": true,

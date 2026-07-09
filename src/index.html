@@ -130,11 +130,28 @@
           <div id="view-get-mods" class="view">
             <div class="settings-content">
               <div class="settings-section-title">
-                Available Mods
+                Get Mods
                 <button id="get-mods-refresh" class="sort-btn" title="Refresh">Refresh</button>
               </div>
               <div class="tweak-status" id="get-mods-status">Loading…</div>
-              <div id="get-mods-list" class="getmods-list"></div>
+
+              <div class="getmods-section">
+                <div class="getmods-section-head">
+                  <h3>Official</h3>
+                  <span class="getmods-section-sub">Hosted on ACM's GitHub</span>
+                </div>
+                <div id="getmods-official-list" class="getmods-list"></div>
+                <button id="getmods-official-toggle" class="getmods-showmore hidden"></button>
+              </div>
+
+              <div class="getmods-section">
+                <div class="getmods-section-head">
+                  <h3>Nexus</h3>
+                  <span class="getmods-section-sub">Coming soon</span>
+                </div>
+                <div id="getmods-nexus-list" class="getmods-list"></div>
+                <button id="getmods-nexus-toggle" class="getmods-showmore hidden"></button>
+              </div>
             </div>
           </div>
 
