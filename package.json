@@ -1,6 +1,6 @@
 {
   "name": "angler-cm",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "Sxriptor (https://github.com/sxriptor)",
   "description": "ACM - (Angler Content Manager)",
   "main": "src/main.js",
